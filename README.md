@@ -1,3 +1,3 @@
 # About RapidVision
 
-RapidVision is a work in progress Real-Time object detection system that would be able to recognize objects, humanoids, weapons and hopefully much more down the line. Work on the project began on 8/20/2024
+RapidVision is an object detection tool. Current features allow it to switch between different cameras connected to the device operating the tool, could potentially be used for security purposes.

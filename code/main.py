@@ -1,10 +1,17 @@
 import cv2
 import numpy as np
+import tensorflow as tf
 
 from useful_funcs import center_pos
+from object_detection.utils import label_map_util
+from object_detection.utils import visualization_utils as vis_util
 
 # Constants
 WINDOW_NAME = "Live Feed"
+LEFT_ARROW_KEY = 2424832
+RIGHT_ARROW_KEY = 2555904
+MODEL_PATH = 'C:\Coding Projects\Projects\Python\RapidVision\code\ssd_resnet50_v1_fpn_640x640_coco17_tpu-8'
+LABEL_MAP_PATH = 'C:\Coding Projects\Projects\Python\RapidVision\code\mscoco_label_map.pbtxt'
 
 # Global variables
 camera_index = 0
@@ -37,24 +44,61 @@ error_text_no_feed = cv2.putText(
 def key_management():
     """Handle key presses."""
     global last_direction, allow_left, allow_right, live_feed, camera_index
-    key = cv2.waitKey(1) & 0xFF
+    key = cv2.waitKeyEx(1)
 
     if key == ord('q'):
         return 0
     
-    elif key == ord('r') and allow_right:
+    elif key == RIGHT_ARROW_KEY and allow_right:
+        print("Switching to right camera...")
         last_direction = 1
         allow_left = True
         camera_index += 1
         live_feed.release()
         live_feed = cv2.VideoCapture(camera_index)
+        print(f"Camera index: {camera_index}")
         
-    elif key == ord('l') and allow_left:
+    elif key == LEFT_ARROW_KEY and allow_left:
+        print("Switching to left camera...")
         last_direction = 0
         allow_right = True
         camera_index -= 1
         live_feed.release()
         live_feed = cv2.VideoCapture(camera_index)
+        print(f"Camera index: {camera_index}")
+
+def draw_object_bounds(frame, detections, category_index):
+    vis_util.visualize_boxes_and_labels_on_image_array(
+        image=frame,
+        boxes=detections['detection_boxes'],
+        classes=detections['detection_classes'],
+        scores=detections['detection_scores'],
+        category_index=category_index,
+        use_normalized_coordinates=True,
+        min_score_thresh=0.5,
+        line_thickness=4,
+    )
+
+def read_objects(model, frame):
+    '''Read objects detected in the current frame.'''
+
+    # Convert frame to RGB as TensorFlow expects RGB format
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    input_tensor = tf.convert_to_tensor(frame)
+    input_tensor = input_tensor[tf.newaxis,...]
+
+    detections = model(input_tensor)
+    
+    # Get detected objects
+    num_detections = int(detections.pop('num_detections'))
+    detections = {key: value[0, :num_detections].numpy() for key, value in detections.items()}
+    detections['num_detections'] = num_detections
+
+    # Detection_classes should be ints.
+    detections['detection_classes'] = detections['detection_classes'].astype(np.int64)
+
+    return detections
 
 def read_frame():
     """Read the current frame from the live feed."""
@@ -72,10 +116,21 @@ def read_frame():
     return frame
 
 def main():
+    global MODEL_PATH, LABEL_MAP_PATH
+
+    model = tf.saved_model.load(MODEL_PATH)
+    catagory_index = label_map_util.create_category_index_from_labelmap(LABEL_MAP_PATH, use_display_name=True)
+
     """Main loop."""
     while True:
         # Read the current frame from the live feed
         frame = read_frame()
+
+        # Gets bounding boxes from detected objects
+        detections = read_objects(model, frame)
+
+        # Draw bounding boxes around detected objects
+        draw_object_bounds(frame, detections, catagory_index)
 
         cv2.imshow(WINDOW_NAME, frame)
 
