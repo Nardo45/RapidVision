@@ -4,11 +4,10 @@ import detections
 import shared_data as sd
 import useful_funcs as uf
 
-from object_detection.utils import label_map_util
-from tensorflow import saved_model
+from ultralytics import YOLO
 from threading import Thread
 from PyQt5.QtWidgets import QApplication, QWidget, QInputDialog
-from PyQt5.QtGui import QImage, QKeyEvent, QPainter
+from PyQt5.QtGui import QImage, QPainter
 from PyQt5.QtCore import QTimer, QPoint, Qt
 
 # global variables
@@ -19,11 +18,10 @@ last_direction = None
 class VideoWidget(QWidget):
     """A class for displaying video from OpenCV and detection boxes"""
 
-    def __init__(self, category_index):
+    def __init__(self):
         QWidget.__init__(self)
         self.camera_index = 0
         self.live_feed = cv2.VideoCapture(self.camera_index)
-        self.category_index = category_index
 
         # Set the camera to its maximum resolution
         self.live_feed.set(cv2.CAP_PROP_FRAME_WIDTH, 9999)
@@ -35,11 +33,13 @@ class VideoWidget(QWidget):
 
     def convert_cv2qimage(self, cv2_img):
         """Convert OpenCV image to QImage"""
-        if sd.shared_variables.latest_detections != None:
-            self.num_of_detections, self.num_of_detections_per_class = detections.draw_object_bounds(cv2_img, sd.shared_variables.latest_detections, self.category_index)
+
+
+        if sd.shared_variables.latest_detections is not None:
+            self.num_of_detections, self.num_of_detections_per_class = detections.draw_object_bounds(cv2_img, sd.shared_variables.latest_detections)
         else:
             self.num_of_detections, self.num_of_detections_per_class = 0, 0
-        
+
         # Convert the image to RGB format
         rgb_image = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
         height, width, ch = rgb_image.shape
@@ -55,6 +55,7 @@ class VideoWidget(QWidget):
         font = painter.font()
         font.setPointSize(font_size)
         painter.setFont(font)
+
         if self.image:
             scaled_image = self.image.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             x_offset = (self.width() - scaled_image.width()) // 2
@@ -70,12 +71,11 @@ class VideoWidget(QWidget):
                 painter.drawText(QPoint(x_offset, y_offset), text)
 
             if sd.Settings.show_amount_of_detections_per_class and self.num_of_detections_per_class:
-                for class_name, count in self.num_of_detections_per_class.items():
+                for texts in self.num_of_detections_per_class:
                     painter.setPen(Qt.white)
-                    text = f"{str(class_name).capitalize()}(s): {count}"
-                    text_rect = painter.fontMetrics().boundingRect(text)
+                    text_rect = painter.fontMetrics().boundingRect(texts)
                     y_offset += (text_rect.height())
-                    painter.drawText(QPoint(x_offset, y_offset), text)
+                    painter.drawText(QPoint(x_offset, y_offset), texts)
         else:
             # Draw a black background and a text indicating no feed detected
             painter.fillRect(self.rect(), Qt.black)
@@ -138,8 +138,7 @@ class VideoWidget(QWidget):
 
 if __name__ == "__main__":
     # Load the model and set up the label map
-    model = saved_model.load(uf.absolute_path('RapidVision', 'centernet_hg104_512x512_coco17_tpu-8', True, 'model'))
-    category_index = label_map_util.create_category_index_from_labelmap(uf.absolute_path('RapidVision','mscoco_label_map.pbtxt', True, 'model'), use_display_name=True)
+    model = YOLO(uf.absolute_path('RapidVision', 'yolov10b.pt', True, 'model'))
 
     # Start the detection thread
     detection_thread = Thread(target=detections.read_objects, args=(model,), daemon=True)
@@ -148,14 +147,11 @@ if __name__ == "__main__":
     # Create and show the main window
     app = QApplication(sys.argv)
 
-    widget = VideoWidget(category_index=category_index)
+    widget = VideoWidget()
     widget.setWindowTitle('RapidVision')
     widget.show()
 
     # Ensures the thread is stopped when the main window is closed
     app.aboutToQuit.connect(lambda: sd.shared_variables.stop_thread.set())
-
-    # Wait for the detection thread to finish
-    #detection_thread.join()
 
     sys.exit(app.exec_())
