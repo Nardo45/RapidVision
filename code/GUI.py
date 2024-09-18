@@ -1,14 +1,12 @@
-import sys
-import cv2
-import detections
+import sys, cv2, detections, torch
+
 import shared_data as sd
 import useful_funcs as uf
 
-from ultralytics import YOLO
 from threading import Thread
-from PyQt5.QtWidgets import QApplication, QWidget, QInputDialog
 from PyQt5.QtGui import QImage, QPainter
 from PyQt5.QtCore import QTimer, QPoint, Qt
+from PyQt5.QtWidgets import QApplication, QWidget, QInputDialog
 
 # global variables
 allow_right = True
@@ -33,15 +31,13 @@ class VideoWidget(QWidget):
 
     def convert_cv2qimage(self, cv2_img):
         """Convert OpenCV image to QImage"""
-
-
         if sd.shared_variables.latest_detections is not None:
-            self.num_of_detections, self.num_of_detections_per_class = detections.draw_object_bounds(cv2_img, sd.shared_variables.latest_detections)
+            self.num_of_detections, self.num_of_detections_per_class, new_frame = detections.display_detections(cv2_img)
         else:
-            self.num_of_detections, self.num_of_detections_per_class = 0, 0
+            self.num_of_detections, self.num_of_detections_per_class, new_frame = None, None, cv2_img
 
         # Convert the image to RGB format
-        rgb_image = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
+        rgb_image = cv2.cvtColor(new_frame, cv2.COLOR_BGR2RGB)
         height, width, ch = rgb_image.shape
         bytes_per_line = ch * width
         return QImage(rgb_image.data, width, height, bytes_per_line, QImage.Format_RGB888)
@@ -137,11 +133,13 @@ class VideoWidget(QWidget):
             super().keyPressEvent(event) # Call the base class method for other key presses
 
 if __name__ == "__main__":
-    # Load the model and set up the label map
-    model = YOLO(uf.absolute_path('RapidVision', 'yolov10b.pt', True, 'model'))
+    print('Starting RapidVision...')
+    # Load the model and set it to use CUDA if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = torch.load(uf.absolute_path('RapidVision', 'yolo_nas_l.pt', True, 'model'), map_location=device)
 
     # Start the detection thread
-    detection_thread = Thread(target=detections.read_objects, args=(model,), daemon=True)
+    detection_thread = Thread(target=detections.read_objects, args=(model,device,), daemon=True)
     detection_thread.start()
 
     # Create and show the main window

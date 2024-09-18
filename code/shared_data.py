@@ -7,4 +7,5 @@ class Settings:
 class shared_variables:
     latest_detections = None
     latest_frame = None
+    prev_conf_score = 0 # Used for a smooth transition between neon-like colors
     stop_thread = Event()

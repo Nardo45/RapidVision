@@ -1,1 +1,2 @@
 model/centernet_hg104_512x512_coco17_tpu-8/variables/variables.data-00000-of-00001 filter=lfs diff=lfs merge=lfs -text
+model/yolo_nas_l.pt filter=lfs diff=lfs merge=lfs -text
