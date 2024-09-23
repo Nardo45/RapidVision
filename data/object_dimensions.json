@@ -1,0 +1,322 @@
+{
+    "person": {
+        "height": 1.7,
+        "width": 0.5
+    },
+    "bicycle": {
+        "height": 1.0,
+        "width": 0.5
+    },
+    "car": {
+        "height": 1.5,
+        "width": 1.8
+    },
+    "motorcycle": {
+        "height": 1.2,
+        "width": 0.7
+    },
+    "airplane": {
+        "height": 4.0,
+        "width": 20.0
+    },
+    "bus": {
+        "height": 3.2,
+        "width": 2.5
+    },
+    "train": {
+        "height": 4.0,
+        "width": 3.0
+    },
+    "truck": {
+        "height": 3.0,
+        "width": 2.5
+    },
+    "boat": {
+        "height": 1.5,
+        "width": 4.0
+    },
+    "traffic light": {
+        "height": 3.0,
+        "width": 0.4
+    },
+    "fire hydrant": {
+        "height": 0.75,
+        "width": 0.3
+    },
+    "stop sign": {
+        "height": 2.0,
+        "width": 0.6
+    },
+    "parking meter": {
+        "height": 1.5,
+        "width": 0.2
+    },
+    "bench": {
+        "height": 0.45,
+        "width": 1.5
+    },
+    "bird": {
+        "height": 0.25,
+        "width": 0.3
+    },
+    "cat": {
+        "height": 0.3,
+        "width": 0.4
+    },
+    "dog": {
+        "height": 0.5,
+        "width": 0.7
+    },
+    "horse": {
+        "height": 1.6,
+        "width": 1.0
+    },
+    "sheep": {
+        "height": 0.9,
+        "width": 1.0
+    },
+    "cow": {
+        "height": 1.5,
+        "width": 1.4
+    },
+    "elephant": {
+        "height": 3.3,
+        "width": 3.0
+    },
+    "bear": {
+        "height": 1.8,
+        "width": 1.0
+    },
+    "zebra": {
+        "height": 1.4,
+        "width": 1.0
+    },
+    "giraffe": {
+        "height": 5.5,
+        "width": 1.5
+    },
+    "backpack": {
+        "height": 0.4,
+        "width": 0.3
+    },
+    "umbrella": {
+        "height": 1.0,
+        "width": 0.8
+    },
+    "handbag": {
+        "height": 0.3,
+        "width": 0.25
+    },
+    "tie": {
+        "height": 0.4,
+        "width": 0.1
+    },
+    "suitcase": {
+        "height": 0.6,
+        "width": 0.4
+    },
+    "frisbee": {
+        "height": 0.03,
+        "width": 0.2
+    },
+    "skis": {
+        "height": 1.7,
+        "width": 0.1
+    },
+    "snowboard": {
+        "height": 1.6,
+        "width": 0.3
+    },
+    "sports ball": {
+        "height": 0.25,
+        "width": 0.25
+    },
+    "kite": {
+        "height": 0.8,
+        "width": 1.0
+    },
+    "baseball bat": {
+        "height": 1.0,
+        "width": 0.03
+    },
+    "baseball glove": {
+        "height": 0.25,
+        "width": 0.2
+    },
+    "skateboard": {
+        "height": 0.12,
+        "width": 0.3
+    },
+    "surfboard": {
+        "height": 0.2,
+        "width": 1.5
+    },
+    "tennis racket": {
+        "height": 0.68,
+        "width": 0.3
+    },
+    "bottle": {
+        "height": 0.3,
+        "width": 0.1
+    },
+    "wine glass": {
+        "height": 0.2,
+        "width": 0.08
+    },
+    "cup": {
+        "height": 0.1,
+        "width": 0.08
+    },
+    "fork": {
+        "height": 0.2,
+        "width": 0.02
+    },
+    "knife": {
+        "height": 0.2,
+        "width": 0.02
+    },
+    "spoon": {
+        "height": 0.15,
+        "width": 0.03
+    },
+    "bowl": {
+        "height": 0.1,
+        "width": 0.15
+    },
+    "banana": {
+        "height": 0.2,
+        "width": 0.04
+    },
+    "apple": {
+        "height": 0.09,
+        "width": 0.08
+    },
+    "sandwich": {
+        "height": 0.06,
+        "width": 0.1
+    },
+    "orange": {
+        "height": 0.09,
+        "width": 0.08
+    },
+    "broccoli": {
+        "height": 0.3,
+        "width": 0.2
+    },
+    "carrot": {
+        "height": 0.2,
+        "width": 0.03
+    },
+    "hot dog": {
+        "height": 0.15,
+        "width": 0.04
+    },
+    "pizza": {
+        "height": 0.03,
+        "width": 0.3
+    },
+    "donut": {
+        "height": 0.05,
+        "width": 0.1
+    },
+    "cake": {
+        "height": 0.1,
+        "width": 0.15
+    },
+    "chair": {
+        "height": 0.9,
+        "width": 0.5
+    },
+    "couch": {
+        "height": 0.8,
+        "width": 2.0
+    },
+    "potted plant": {
+        "height": 0.4,
+        "width": 0.3
+    },
+    "bed": {
+        "height": 0.6,
+        "width": 2.0
+    },
+    "dining table": {
+        "height": 0.75,
+        "width": 1.5
+    },
+    "toilet": {
+        "height": 0.4,
+        "width": 0.4
+    },
+    "tv": {
+        "height": 0.5,
+        "width": 0.9
+    },
+    "laptop": {
+        "height": 0.02,
+        "width": 0.3
+    },
+    "mouse": {
+        "height": 0.04,
+        "width": 0.06
+    },
+    "remote": {
+        "height": 0.02,
+        "width": 0.04
+    },
+    "keyboard": {
+        "height": 0.04,
+        "width": 0.5
+    },
+    "cell phone": {
+        "height": 0.14,
+        "width": 0.07
+    },
+    "microwave": {
+        "height": 0.3,
+        "width": 0.4
+    },
+    "oven": {
+        "height": 0.6,
+        "width": 0.6
+    },
+    "toaster": {
+        "height": 0.2,
+        "width": 0.15
+    },
+    "sink": {
+        "height": 0.8,
+        "width": 0.5
+    },
+    "refrigerator": {
+        "height": 1.8,
+        "width": 1.0
+    },
+    "book": {
+        "height": 0.3,
+        "width": 0.2
+    },
+    "clock": {
+        "height": 0.15,
+        "width": 0.2
+    },
+    "vase": {
+        "height": 0.3,
+        "width": 0.15
+    },
+    "scissors": {
+        "height": 0.2,
+        "width": 0.07
+    },
+    "teddy bear": {
+        "height": 0.4,
+        "width": 0.3
+    },
+    "hair drier": {
+        "height": 0.2,
+        "width": 0.15
+    },
+    "toothbrush": {
+        "height": 0.18,
+        "width": 0.02
+    }
+}

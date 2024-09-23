@@ -1,20 +1,26 @@
 import numpy as np
+import useful_funcs as uf
+
+import cv2, json, os
 
 from threading   import Lock
 from collections import Counter
 from torch       import from_numpy
-from cv2         import cvtColor, COLOR_BGR2RGB
 from PIL         import Image, ImageDraw, ImageFont
-from shared_data import shared_variables as sv
+from shared_data import shared_variables as sv, Settings
 
+# Lock to ensure thread-safe access to the frame
 frame_lock = Lock()
+
+# Dictionary to store the smoothed confidence scores for each detected object
+stored_conf_score = {}
 
 def draw_bounding_boxes(frame, detections):
     """Draw bounding boxes around detected objects."""
     coords = detections.prediction.bboxes_xyxy
     conf_scores = detections.prediction.confidence
 
-    # Get all detected lables
+    # Get all detected labels
     labels = detections.prediction.labels
     class_names = detections.class_names
     label_names = [class_names[label].capitalize() for label in labels]
@@ -28,40 +34,41 @@ def draw_bounding_boxes(frame, detections):
     overlay_draw = ImageDraw.Draw(overlay)
 
     # Alpha controls the smoothing factor
-    alpha = 0.1
+    alpha = 0.05
+
+    font = ImageFont.load_default(15)
     
     for i in range(len(conf_scores)):
         x1, y1, x2, y2 = coords[i]
-        width, height = x2 - x1, y2 - y1
 
-        font = ImageFont.load_default(min(width, height) * 0.07) # Font size is adjusted based on the bbox size
-
-        # Calculate the color based on the confidence score
         conf_score = conf_scores[i]
 
+        # Checks if the list of previous conf scores for this object exists
+        try:
+            prev_conf_score = stored_conf_score[str(i)]
+        except KeyError:
+            prev_conf_score = 0
+
         # Apply exponential smoothing to the conf score
-        smooth_conf_score = (1 - alpha) * sv.prev_conf_score + alpha * conf_score
-        sv.prev_conf_score = smooth_conf_score
+        smooth_conf_score = (1 - alpha) * prev_conf_score + alpha * conf_score
+        stored_conf_score[str(i)] = smooth_conf_score
         
         # Smooth transition logic for neon-like colors
         if conf_score < 0.55:
-            # Neon pinks and purples (high red and blue)
             red = 255
-            green = 0
+            green = int(255 * (0.5 - smooth_conf_score))
             blue = int(255 * (0.5 + smooth_conf_score))  # Scale between 128-255
         elif 0.55 <= conf_score < 0.7:
-            # Smooth transition between pink/purple to neon green
             # Interpolate between previous pink (255, 0, 255) and neon green (0, 255, 0)
             factor = (smooth_conf_score - 0.55) / (0.7 - 0.55)  # Normalize to range 0-1
             red = int(255 * (1 - factor))  # Transition from 255 to 0
             green = int(255 * factor)      # Transition from 0 to 255
-            blue = int(255 * (1 - factor)) # Transition from 255 to 0
+            blue = int(255 * (1 - factor))
         else:
-            # Smooth transition between neon green to neon blue/cyan
             # Interpolate between neon green (0, 255, 0) and neon cyan (0, 255, 255)
             factor = (smooth_conf_score - 0.7) / (1 - 0.7)  # Normalize to range 0-1
-            red = 0
-            green = int(255 * (1 - factor))  # Transition from 255 to 128
+            red = int(255 * (1 - factor)) 
+            green = int(255 * (1 - factor))   # Transition from 255 to 128 as factor increases
             blue = int(255 * factor)         # Transition from 0 to 255
 
         # Set the opacity based on the confidence score
@@ -79,15 +86,98 @@ def draw_bounding_boxes(frame, detections):
         text_bbox = draw.textbbox((0, 0), label_text, font=font)
         text_width = text_bbox[2] - text_bbox[0]
         text_height = text_bbox[3] - text_bbox[1]
-        text_x, text_y = x1, y1 - text_height - min(width, height) * 0.05
+        text_x, text_y = x1, y1 - text_height - 10
 
         # Draw filled rectangle behind the label
-        draw.rectangle([text_x, text_y , text_x + text_width + 10, y1],
-                       fill=(blue, green, red))
+        draw.rectangle([text_x, text_y , text_x + text_width + 10, y1], fill=(0, 0, 0))
         
         # Draw the label and confidence score
-        draw.text((text_x + 5, text_y), label_text, font=font, fill=(0, 0, 0))
+        draw.text((text_x + 5, text_y), label_text, font=font, fill=(255, 255, 255))
 
+    # Convert the PIL image back to a numpy array
+    return np.array(pil_img)
+
+
+
+def calculate_est_distance(bbox, label_name, dimensions_dict):
+    """Estimates the distance to the detected object based on its bounding box and label."""
+    X1, Y1, X2, Y2 = bbox
+    OBJ_HEIGHT = Y2 - Y1
+    OBJ_WIDTH = X2 - X1
+    OBJ_ASPECT_RATIO = OBJ_WIDTH / OBJ_HEIGHT
+
+    KNOWN_HEIGHT = dimensions_dict[label_name]['height']
+    KNOWN_WIDTH = dimensions_dict[label_name]['width']
+    KNOWN_ASPECT_RATIO = KNOWN_WIDTH / KNOWN_HEIGHT
+
+    # Threshold for aspect ratio deviation
+    aspect_ratio_tolerance = 0.8
+
+    try:
+        FOCAL_LENGTH = sv.avg_cam_focal_length[sv.cam_index]
+    except KeyError:
+        FOCAL_LENGTH = 800
+
+    if OBJ_ASPECT_RATIO < KNOWN_ASPECT_RATIO - aspect_ratio_tolerance:
+        # Objects width is off screen
+        distance = (KNOWN_HEIGHT * FOCAL_LENGTH) / OBJ_HEIGHT
+    elif OBJ_ASPECT_RATIO > KNOWN_ASPECT_RATIO + aspect_ratio_tolerance:
+        # Objects height is off screen
+        distance = (KNOWN_WIDTH * FOCAL_LENGTH) / OBJ_WIDTH
+    else:
+        # Both object width and height are off screen
+        width_based_distance = (KNOWN_WIDTH * FOCAL_LENGTH) / OBJ_WIDTH
+        height_based_distance = (KNOWN_HEIGHT * FOCAL_LENGTH) / OBJ_HEIGHT
+
+        # Combine into one distance with a weighted average
+        weight_width = abs(KNOWN_ASPECT_RATIO - OBJ_ASPECT_RATIO)
+        weight_height = 1 - weight_width
+
+        distance = (weight_width * width_based_distance + weight_height * height_based_distance) / 2
+    
+    return distance
+
+
+
+def draw_est_distance(frame, detections):
+    """Estimate distances to detected objects."""
+    bboxes = detections.prediction.bboxes_xyxy
+
+    # Get all detected labels
+    labels = detections.prediction.labels
+    class_names = detections.class_names
+    label_names = [class_names[label].capitalize() for label in labels]
+    label_names = [string.lower() for string in label_names]
+
+    # Convert numpy array to PIL image
+    pil_img = Image.fromarray(frame)
+    draw = ImageDraw.Draw(pil_img)
+
+    font = ImageFont.load_default(15)
+    dimensions_dict = uf.extract_json_2_dict(uf.absolute_path('RapidVision', 'object_dimensions.json', True, 'data'))
+
+    for i in range(len(label_names)):
+        est_distance = calculate_est_distance(bboxes[i], label_names[i], dimensions_dict)
+        
+        _, _, x2, y2 = bboxes[i]
+
+        # Draw the distance on the frame
+        label_text = f'Distance: {est_distance:.2f}m'
+        text_bbox = draw.textbbox((0, 0), label_text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+        text_x, text_y = x2 - text_width - 10, y2 + text_height - 10
+
+        height, _, _ = frame.shape
+        if text_y + text_height > height - 10:
+            text_y = height - text_height - 10
+
+        # Draw filled rectangle behind the label
+        draw.rectangle([text_x, text_y, text_x + text_width + 10, y2 + text_height + 10], fill=(0, 0, 0))
+        
+        # Draw the label and distance
+        draw.text((text_x + 5, text_y), label_text, font=font, fill=(255, 255, 255))
+    
     # Convert the PIL image back to a numpy array
     return np.array(pil_img)
 
@@ -97,12 +187,15 @@ def display_detections(frame):
     """Draw bounding boxes around detected objects and get number of detected objects."""
 
     detections = sv.latest_detections
-
-    frame_with_detections = draw_bounding_boxes(frame, detections)
-
+    frame = draw_bounding_boxes(frame, detections)
     detection_num, class_counts = count_detections(detections)
 
-    return detection_num, class_counts, frame_with_detections
+    # If distance estimation is enabled, draw estimated distances on the frame
+    if Settings.distance_estimation:
+        frame = draw_est_distance(frame, detections)
+
+    # Return the number of detections, class counts, and the processed frame
+    return detection_num, class_counts, frame
 
 
 
@@ -133,19 +226,95 @@ def count_detections(detections):
 
 
 
+def cam_cali():
+    """Calibrate the camera using a checkerboard pattern."""
+    CHECKERBOARD = (6, 6)
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+
+    objpoints = []  # 3D points in real-world space
+    imgpoints = []  # 2D points in image plane
+
+    NUM_SAMPLES = 20
+    num_imgz = 0
+
+    # Prepare object points
+    objp = np.zeros((CHECKERBOARD[0] * CHECKERBOARD[1], 3), np.float32)
+    objp[:, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2)
+
+    while num_imgz < NUM_SAMPLES and sv.latest_frame is not None:
+        frame = sv.latest_frame
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        ret, corners = cv2.findChessboardCorners(gray, CHECKERBOARD, None)
+        
+        if ret:
+            objpoints.append(objp)
+            corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+            imgpoints.append(corners2)
+            sv.latest_frame = cv2.drawChessboardCorners(gray, CHECKERBOARD, corners2, ret)
+
+            num_imgz += 1
+            print(f'frame {num_imgz}/{NUM_SAMPLES}')
+            cv2.waitKey(200)
+
+        if num_imgz >= NUM_SAMPLES:
+            Settings.calibrate_camera = False
+            break
+
+    # Calculate the focal length of the selected camera
+    ret, camera_matrix, _, _, _ = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+
+    # Extract the focal length of the selected camera
+    fx = camera_matrix[0, 0]
+    fy = camera_matrix[1, 1]
+    focal_length = (fx + fy) / 2  # Average the focal length
+    sv.avg_cam_focal_length[sv.cam_index] = focal_length
+
+    # New data to be saved
+    new_data = {
+        f'cam {sv.cam_index}': {
+            'focal_length': focal_length
+        }
+    }
+
+    cali_data_path = uf.absolute_path('RapidVision', 'cam_cali_data.json', True, 'data')
+    # Check if the file exists and is not empty
+    if os.path.exists(cali_data_path) and os.path.getsize(cali_data_path) > 0:
+        with open(cali_data_path, 'r') as data_file:
+            try:
+                data = json.load(data_file)
+            except json.JSONDecodeError:
+                # Start fresh if the data is corrupted
+                data = {}
+    else:
+        # If the file does't exist or is empty, start with an empty dict
+        data = {}
+
+    data.update(new_data)
+
+    # Write the data back to the JSON file (formatted)
+    with open(cali_data_path, 'w') as data_file:
+        json.dump(data, data_file, indent=4)
+
+
+
 def read_objects(model, device):
     """Read objects from the live feed and update latest detections."""
-    
     while not sv.stop_thread.is_set():
-        with frame_lock:
+        # If the camera calibration flag is set, calibrate the camera
+        if Settings.calibrate_camera:
+            print('Calibrating camera...')
+            cam_cali()
+        
+        # If a new frame is available, perform object detection and update the latest detections
+        elif sv.latest_frame is not None:
             latest_frame = sv.latest_frame
-            if latest_frame is not None:
-                frame = latest_frame.copy()
-                frame = cvtColor(frame, COLOR_BGR2RGB) # Convert frame to RGB as TensorFlow expects RGB format
-                frame_tensor = from_numpy(frame).permute(2,0,1).unsqueeze(0).to(device) # Convert frame to PyTorch tensor
-                
-                # Perform object detection on the frame
-                results = model.predict(frame_tensor, conf=0.4, fuse_model=False) # Perform object detection on the frame
+            frame = latest_frame.copy()
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert frame to RGB as TensorFlow expects RGB format
+            frame_tensor = from_numpy(frame).permute(2, 0, 1).unsqueeze(0).to(device)  # Convert frame to PyTorch tensor
+            
+            # Perform object detection on the frame
+            results = model.predict(frame_tensor, conf=0.4, fuse_model=False)  # Perform object detection on the frame
 
-                # Update the latest results and detections in thread-safe manner
-                sv.latest_detections = results
+            # Update the latest results and detections in a thread-safe manner
+            sv.latest_detections = results
