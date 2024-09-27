@@ -1,5 +1,5 @@
 # Import necessary modules for file operations, system information, and JSON parsing
-import os, sys, json
+import os, sys, json, inspect
 
 
 # Function to extract JSON data from a file and convert it into a Python dictionary
@@ -36,75 +36,63 @@ def extract_json_2_dict(path_2_json):
     # Return the extracted Python dictionary
     return data
 
-def absolute_path(parent_folder, file_or_folder_name, search_within_folders=False, search_folder_name=None):
-    """
-    Locate the absolute path of a file or folder by searching within the current working directory, 
-    or within a specified parent folder or subdirectories. This function supports running in both 
-    normal execution and when bundled via PyInstaller.
+def save_2_json(path_2_json, new_data):
+    if os.path.exists(path_2_json) or os.path.getsize(path_2_json) > 0:
+        with open(path_2_json, 'r') as data_file:
+                try:
+                    data = json.load(data_file)
+                except json.JSONDecodeError:
+                    # Start fresh if the data is corrupted
+                    data = {}
+    else:
+        # If the file does't exist or is empty, start with an empty dict
+        data = {}
 
-    Parameters:
-    -----------
-    parent_folder : str
-        The name of the parent folder to search up to. If the parent folder is reached, the search stops.
-    file_or_folder_name : str
-        The name of the file or folder to search for.
-    search_within_folders : bool, optional
-        If True, the function searches within the subdirectories of the current working directory (default is False).
-    search_folder_name : str, optional
-        If `search_within_folders` is True, this specifies the specific subfolder name to search in (default is None).
+    data.update(new_data)
 
-    Returns:
-    --------
-    str
-        The absolute path of the file or folder if found.
+    # Write the data back to the JSON file (formatted)
+    with open(path_2_json, 'w') as data_file:
+        json.dump(data, data_file, indent=4)
 
-    Raises:
-    -------
-    FileNotFoundError
-        If the specified file or folder cannot be found in the current directory or any of its parent directories.
+def absolute_path(parent_folder, file_or_folder_name=None, search_folder_name=None):
+    # Get the directory of the file that called this function
+    caller_frame = inspect.stack()[1]
+    caller_file = caller_frame.filename
+    caller_directory = os.path.dirname(caller_file)
 
-    Notes:
-    ------
-    - When using PyInstaller, the `sys._MEIPASS` attribute contains the temporary folder where PyInstaller 
-      unpacks the bundled app. This function handles such cases and checks there first.
-    - The function traverses up from the current directory toward the root directory or the specified 
-      `parent_folder`, looking for the target file or folder.
-    """
-
+    while os.path.basename(caller_directory) != parent_folder:
+        caller_directory = os.path.dirname(caller_directory)
+    
     # Check if running under PyInstaller, and use the _MEIPASS directory if available
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         file_path = os.path.join(sys._MEIPASS, file_or_folder_name)
         if os.path.exists(file_path):
             return file_path
 
-    # Start searching in the current working directory
-    current_directory = os.path.dirname(os.path.dirname(__file__))
+    # If both file and folder are specified, search for the folder first, then the file inside it
+    if search_folder_name and file_or_folder_name:
+        for root, dirs, _ in os.walk(caller_directory):
+            if search_folder_name in dirs:
+                search_folder_path = os.path.join(root, search_folder_name)
+                file_path = os.path.join(search_folder_path, file_or_folder_name)
+                if os.path.exists(file_path):
+                    return file_path
+        raise FileNotFoundError(f"Folder '{search_folder_name}' or file '{file_or_folder_name}' not found.")
 
-    # If searching within subdirectories
-    if search_within_folders:
-        # List all directories in the current working directory
-        dirs_in_parent_folder = [d for d in os.listdir(current_directory) if os.path.isdir(os.path.join(current_directory, d))]
+    # If only a folder is specified, search for the folder under the parent directory
+    elif search_folder_name and not file_or_folder_name:
+        for root, dirs, _ in os.walk(caller_directory):
+            if search_folder_name in dirs:
+                return os.path.join(root, search_folder_name)
+        raise FileNotFoundError(f"Folder '{search_folder_name}' not found.")
 
-        # Determine the search directory
-        search_dir = search_folder_name if search_folder_name in dirs_in_parent_folder else None
-        
-        # If the specified subfolder is found, construct the file path
-        if search_dir:
-            file_path = os.path.join(current_directory, search_dir, file_or_folder_name)
-            if os.path.exists(file_path):
-                return file_path
+    # If only a file is specified, search for the file under the parent directory
+    elif file_or_folder_name and not search_folder_name:
+        for root, _, files in os.walk(caller_directory):
+            if file_or_folder_name in files:
+                return os.path.join(root, file_or_folder_name)
+        raise FileNotFoundError(f"File '{file_or_folder_name}' not found.")
 
-    # Traverse up the directory tree until the parent folder is reached or the root directory
-    while current_directory != 'c:\\' and current_directory != 'c:/' and os.path.basename(current_directory) != parent_folder:
-        # Check for the file in the current directory
-        file_path = os.path.join(current_directory, file_or_folder_name)
-
-        # Return the path if the file is found
-        if os.path.exists(file_path):
-            return file_path
-
-        # Move up to the parent directory
-        current_directory = os.path.dirname(current_directory)
-
-    # If the file wasn't found, raise an exception
-    raise FileNotFoundError(f"File '{file_or_folder_name}' not found in current directory or its parent directories.")
+    # If neither folder nor file is specified, raise an error
+    else:
+        raise ValueError("You must specify either a file or a folder to search for.")

@@ -214,11 +214,11 @@ if __name__ == "__main__":
     print('Starting RapidVision...')
 
     # Load average camera focal length data from JSON file
-    sv.avg_cam_focal_length = uf.extract_json_2_dict(uf.absolute_path('RapidVision', 'cam_cali_data.json', True, 'data'))
+    sv.avg_cam_focal_length = uf.extract_json_2_dict(uf.absolute_path('RapidVision', 'cam_cali_data.json', 'data'))
 
     # Load the YOLO model and set it to use CUDA if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = torch.load(uf.absolute_path('RapidVision', 'yolo_nas_l.pt', True, 'model'), map_location=device)
+    model = torch.load(uf.absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location=device)
 
     # Start the detection thread as a daemon process
     detection_thread = Thread(target=detections.read_objects, args=(model, device,), daemon=True)

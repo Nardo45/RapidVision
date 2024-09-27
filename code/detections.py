@@ -8,6 +8,7 @@ from collections import Counter
 from torch       import from_numpy
 from PIL         import Image, ImageDraw, ImageFont
 from shared_data import shared_variables as sv, Settings
+from cam_cali    import cam_cali
 
 # Lock to ensure thread-safe access to the frame
 frame_lock = Lock()
@@ -154,7 +155,7 @@ def draw_est_distance(frame, detections):
     draw = ImageDraw.Draw(pil_img)
 
     font = ImageFont.load_default(15)
-    dimensions_dict = uf.extract_json_2_dict(uf.absolute_path('RapidVision', 'object_dimensions.json', True, 'data'))
+    dimensions_dict = uf.extract_json_2_dict(uf.absolute_path('RapidVision', 'object_dimensions.json', 'data'))
 
     for i in range(len(label_names)):
         est_distance = calculate_est_distance(bboxes[i], label_names[i], dimensions_dict)
@@ -223,79 +224,6 @@ def count_detections(detections):
     class_counts = formatted_output.split(', ')
 
     return detection_num, class_counts
-
-
-
-def cam_cali():
-    """Calibrate the camera using a checkerboard pattern."""
-    CHECKERBOARD = (6, 6)
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-
-    objpoints = []  # 3D points in real-world space
-    imgpoints = []  # 2D points in image plane
-
-    NUM_SAMPLES = 20
-    num_imgz = 0
-
-    # Prepare object points
-    objp = np.zeros((CHECKERBOARD[0] * CHECKERBOARD[1], 3), np.float32)
-    objp[:, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2)
-
-    while num_imgz < NUM_SAMPLES and sv.latest_frame is not None:
-        frame = sv.latest_frame
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        ret, corners = cv2.findChessboardCorners(gray, CHECKERBOARD, None)
-        
-        if ret:
-            objpoints.append(objp)
-            corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
-            imgpoints.append(corners2)
-            sv.latest_frame = cv2.drawChessboardCorners(gray, CHECKERBOARD, corners2, ret)
-
-            num_imgz += 1
-            print(f'frame {num_imgz}/{NUM_SAMPLES}')
-            cv2.waitKey(200)
-
-        if num_imgz >= NUM_SAMPLES:
-            Settings.calibrate_camera = False
-            break
-
-    # Calculate the focal length of the selected camera
-    ret, camera_matrix, _, _, _ = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
-
-    # Extract the focal length of the selected camera
-    fx = camera_matrix[0, 0]
-    fy = camera_matrix[1, 1]
-    focal_length = (fx + fy) / 2  # Average the focal length
-    sv.avg_cam_focal_length[sv.cam_index] = focal_length
-
-    # New data to be saved
-    new_data = {
-        f'cam {sv.cam_index}': {
-            'focal_length': focal_length
-        }
-    }
-
-    cali_data_path = uf.absolute_path('RapidVision', 'cam_cali_data.json', True, 'data')
-    # Check if the file exists and is not empty
-    if os.path.exists(cali_data_path) and os.path.getsize(cali_data_path) > 0:
-        with open(cali_data_path, 'r') as data_file:
-            try:
-                data = json.load(data_file)
-            except json.JSONDecodeError:
-                # Start fresh if the data is corrupted
-                data = {}
-    else:
-        # If the file does't exist or is empty, start with an empty dict
-        data = {}
-
-    data.update(new_data)
-
-    # Write the data back to the JSON file (formatted)
-    with open(cali_data_path, 'w') as data_file:
-        json.dump(data, data_file, indent=4)
-
 
 
 def read_objects(model, device):
