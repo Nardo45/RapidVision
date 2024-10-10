@@ -1,7 +1,7 @@
 import numpy as np
 import useful_funcs as uf
 
-import cv2, json, os
+import cv2
 
 from threading   import Lock
 from collections import Counter

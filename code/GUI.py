@@ -1,5 +1,5 @@
 # Import necessary libraries
-import sys, cv2, detections, torch
+import sys, cv2, detections, torch, torch_directml
 
 # Import custom modules
 import useful_funcs as uf
@@ -208,7 +208,6 @@ class VideoWidget(QWidget):
             super().keyPressEvent(event)  # Call the base class method for other key presses
 
 
-
 # Main entry point of the application
 if __name__ == "__main__":
     print('Starting RapidVision...')
@@ -217,8 +216,23 @@ if __name__ == "__main__":
     sv.avg_cam_focal_length = uf.extract_json_2_dict(uf.absolute_path('RapidVision', 'cam_cali_data.json', 'data'))
 
     # Load the YOLO model and set it to use CUDA if available
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = torch.load(uf.absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location=device)
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    elif torch_directml.is_available():
+        device = torch_directml.device()
+        print(device)
+    else:
+        device = torch.device('cpu')
+
+    if device.__str__() != f'privateuseone:{device.index}':
+        model = torch.load(uf.absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location=device)
+    else:
+        model = torch.load(uf.absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location='cpu')
+        print("Model is loaded on CPU")
+        model = model.to(device)
+        print(f"Model is loaded on device: {device}")
+
+    print(f"Model is loaded on device: {next(model.parameters()).device}")
 
     # Start the detection thread as a daemon process
     detection_thread = Thread(target=detections.read_objects, args=(model, device,), daemon=True)
