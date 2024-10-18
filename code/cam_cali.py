@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
-import useful_funcs as uf
+
+from utils import absolute_path, save_2_json
 from shared_data import shared_variables as sv, Settings
 
 def cam_cali():
@@ -54,7 +55,7 @@ def cam_cali():
         }
     }
 
-    cali_data_path = uf.absolute_path('RapidVision', 'cam_cali_data.json', 'data')
+    cali_data_path = absolute_path('RapidVision', 'cam_cali_data.json', 'data')
 
     # Save the updated camera calibration data to JSON file
-    uf.save_2_json(new_data, cali_data_path)
+    save_2_json(new_data, cali_data_path)

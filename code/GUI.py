@@ -2,96 +2,87 @@
 import sys, cv2, detections, torch, torch_directml
 
 # Import custom modules
-import useful_funcs as uf
+from utils import absolute_path, extract_json_2_dict
 from shared_data import shared_variables as sv, Settings
 
 # Import required classes from PyQt5
 from threading import Thread
 from PyQt5.QtGui import QImage, QPainter
 from PyQt5.QtCore import QTimer, QPoint, Qt
-from PyQt5.QtWidgets import QApplication, QPushButton, QSpinBox, QWidget, QDialog, QVBoxLayout, QLabel
+from PyQt5.QtWidgets import (
+    QApplication, QPushButton, QSpinBox, QWidget,
+      QDialog, QVBoxLayout, QLabel
+    )
 
 # Define global variables
 allow_right = True
 allow_left = True
 last_direction = None
 
+# Consts
+SETTINGS_WINDOW_WIDTH = 300
+SETTINGS_WINDOW_HEIGHT = 200
+MAX_FPS = 120
+MIN_FPS = 1
+FONT_SIZE_DIVISOR = 50
+
 
 class SettingsMenu(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Settings")
-        self.setGeometry(100, 100, 300, 200)
+        self.setGeometry(100, 100, SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
 
         layout = QVBoxLayout()
+        self.setLayout(layout)
 
-        label = QLabel("Settings Menu")
-        layout.addWidget(label)
+        layout.addWidget(QLabel('Settings Menu'))
 
-        # Toggle display detection nums
-        self.show_detect_nums_button = QPushButton(f"Show Detect Nums: {'ON' if Settings.show_amount_of_detections else 'OFF'}")
-        self.show_detect_nums_button.setCheckable(True)
-        self.show_detect_nums_button.clicked.connect(self.toggle_detect_nums)
-        layout.addWidget(self.show_detect_nums_button)
+        self.create_toggle_buttons(layout, "Show Detect Nums", "show_amount_of_detections")
+        self.create_toggle_buttons(layout, 'Show Detect Nums per Class', 'show_amount_of_detections_per_class')
 
-        # Toggle display detection nums per class
-        self.show_detect_nums_per_class_button = QPushButton(f"Show Detect Nums per Class: {'ON' if Settings.show_amount_of_detections_per_class else 'OFF'}")
-        self.show_detect_nums_per_class_button.setCheckable(True)
-        self.show_detect_nums_per_class_button.clicked.connect(self.toggle_detect_nums_per_class)
-        layout.addWidget(self.show_detect_nums_per_class_button)
-
-        # Toggle for cam calibration
-        self.cam_calibration_button = QPushButton("Calibrate Camera")
+        self.cam_calibration_button = QPushButton('Calibrate Camera')
         self.cam_calibration_button.clicked.connect(self.calibrate_camera)
         layout.addWidget(self.cam_calibration_button)
 
-        # Control for the FPS
-        self.fps_controller_label = QLabel("FPS: {}".format(Settings.fps_controller))
+        self.fps_controller_label = QLabel(f'FPS: {Settings.fps_controller}')
         layout.addWidget(self.fps_controller_label)
 
-        # FPS controller spinbox
         self.fps_controller_spinbox = QSpinBox()
-        self.fps_controller_spinbox.setRange(1, 120)
+        self.fps_controller_spinbox.setMinimum(MIN_FPS)
         self.fps_controller_spinbox.setValue(Settings.fps_controller)
         self.fps_controller_spinbox.valueChanged.connect(self.update_fps)
         layout.addWidget(self.fps_controller_spinbox)
 
-        # Add a button to close the dialog
-        self.close_button = QPushButton("Close Settings")
+        self.close_button = QPushButton('Close Settings')
         self.close_button.clicked.connect(self.close)
         layout.addWidget(self.close_button)
 
-        self.setLayout(layout)
+    def create_toggle_buttons(self, layout, text, setting_name):
+        button = QPushButton(f"{text}: {'ON' if getattr(Settings, setting_name) else 'OFF'}")
+        button.setCheckable(True)
+        button.clicked.connect(lambda: self.toggle_setting(button, text, setting_name))
+        layout.addWidget(button)
 
-    def toggle_detect_nums(self):
-        """Toggle the 'Show Detect Nums' button state"""
-        Settings.show_amount_of_detections = not Settings.show_amount_of_detections
-        self.show_detect_nums_button.setText(f"Show Detect Nums: {'ON' if Settings.show_amount_of_detections else 'OFF'}")
-
-    def toggle_detect_nums_per_class(self):
-        """Toggle the 'Show Detect Nums per Class' button state"""
-        Settings.show_amount_of_detections_per_class = not Settings.show_amount_of_detections_per_class
-        self.show_detect_nums_per_class_button.setText(f"Show Detect Nums per Class: {'ON' if Settings.show_amount_of_detections_per_class else 'OFF'}")
+    def toggle_setting(self, button, text, setting_name):
+        setattr(Settings, setting_name, not getattr(Settings, setting_name))
+        button.setText(f"{text}: {'ON' if getattr(Settings, setting_name) else 'OFF'}")
 
     def calibrate_camera(self):
-        '''Runs the calibration'''
         Settings.calibrate_camera = True
         self.close()
 
-    def update_fps(self, value):
-        """Updates the display FPS"""
-        self.fps_controller_label.setText("FPS: {}".format(value))
-        VideoWidget.update_fps(widget, value)
+    def update_fps(self, new_fps):
+        self.fps_controller_label.setText(f'FPS: {new_fps}')
+        VideoWidget.update_fps(widget, new_fps)
 
 
 
 class VideoWidget(QWidget):
     """A class for displaying video from OpenCV and detection boxes"""
-
     def __init__(self):
         QWidget.__init__(self)
         self.live_feed = cv2.VideoCapture(sv.cam_index)
-
         # Set the camera to its maximum resolution
         self.live_feed.set(cv2.CAP_PROP_FRAME_WIDTH, 9999)
         self.live_feed.set(cv2.CAP_PROP_FRAME_HEIGHT, 9999)
@@ -100,64 +91,74 @@ class VideoWidget(QWidget):
         self.timer.timeout.connect(self.update_frame)
         self.update_fps(Settings.fps_controller)
 
+        self.image = None
+        self.num_of_detections = None
+        self.num_of_detections_per_class = None
+
     def convert_cv2qimage(self, cv2_img):
         """Convert OpenCV image to QImage"""
-        if sv.latest_detections is not None and Settings.calibrate_camera is False:
+        if sv.latest_detections is not None and not Settings.calibrate_camera:
             self.num_of_detections, self.num_of_detections_per_class, new_frame = detections.display_detections(cv2_img)
         else:
             self.num_of_detections, self.num_of_detections_per_class, new_frame = None, None, cv2_img
 
-        # Convert the image to RGB format
         rgb_image = cv2.cvtColor(new_frame, cv2.COLOR_BGR2RGB)
         height, width, ch = rgb_image.shape
-        bytes_per_line = ch * width
-        return QImage(rgb_image.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        return QImage(rgb_image.data, width, height, ch * width, QImage.Format_RGB888)
     
     def paintEvent(self, event):
         global last_direction, allow_left, allow_right
         painter = QPainter(self)
 
-        font_size = min(self.width(), self.height()) // 50
-
+        font_size = min(self.width(), self.height()) // FONT_SIZE_DIVISOR
         font = painter.font()
         font.setPointSize(font_size)
         painter.setFont(font)
 
         if self.image:
-            scaled_image = self.image.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            x_offset = (self.width() - scaled_image.width()) // 2
-            y_offset = (self.height() - scaled_image.height()) // 2
-            painter.drawImage(QPoint(x_offset, y_offset), scaled_image)
-
-            x_offset += 5
-
-            if Settings.show_amount_of_detections and self.num_of_detections:
-                painter.setPen(Qt.white)
-                text = f"Detections: {self.num_of_detections}"
-                text_rect = painter.fontMetrics().boundingRect(text)
-                y_offset += text_rect.height()
-                painter.drawText(QPoint(x_offset, y_offset), text)
-
-            if Settings.show_amount_of_detections_per_class and self.num_of_detections_per_class:
-                for texts in self.num_of_detections_per_class:
-                    painter.setPen(Qt.white)
-                    text_rect = painter.fontMetrics().boundingRect(texts)
-                    y_offset += (text_rect.height())
-                    painter.drawText(QPoint(x_offset, y_offset), texts)
+            self.draw_image(painter)
+            self.draw_detections(painter)
         else:
-            # Draw a black background and a text indicating no feed detected
-            painter.fillRect(self.rect(), Qt.black)
-            painter.setPen(Qt.red)
-            text = 'No Feed Detected'
-            text_rect = painter.fontMetrics().boundingRect(text)
-            x_offset = (self.width() - text_rect.width()) // 2
-            y_offset = (self.height() - text_rect.height()) // 2 + text_rect.height()
-            painter.drawText(QPoint(x_offset, y_offset), text)
+            self.draw_no_feed(painter)
 
-            if last_direction == 0:
-                allow_left = False
-            else:
-                allow_right = False
+    def draw_image(self, painter: QPainter):
+        scaled_image = self.image.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        x_offset = (self.width() - scaled_image.width()) // 2
+        y_offset = (self.height() - scaled_image.height()) // 2
+        painter.drawImage(QPoint(x_offset, y_offset), scaled_image)
+
+    def draw_detections(self, painter: QPainter):
+        x_offset = 5
+        y_offset = 5
+        painter.setPen(Qt.white)
+
+        if Settings.show_amount_of_detections:
+            text = f"Detections: {self.num_of_detections}"
+            y_offset = self.draw_text(painter, text, x_offset, y_offset)
+
+        if Settings.show_amount_of_detections_per_class and self.num_of_detections_per_class:
+            for text in self.num_of_detections_per_class:
+                y_offset = self.draw_text(painter, text, x_offset, y_offset)
+
+    def draw_text(self, painter: QPainter, text, x_offset, y_offset):
+        text_rect = painter.fontMetrics().boundingRect(text)
+        painter.drawText(QPoint(x_offset, y_offset + text_rect.height()), text)
+        return y_offset + text_rect.height()
+    
+    def draw_no_feed(self, painter: QPainter):
+        global last_direction, allow_left, allow_right
+        painter.fillRect(self.rect(), Qt.black)
+        painter.setPen(Qt.red)
+        text = "No camera feed detected."
+        text_rect = painter.fontMetrics().boundingRect(text)
+        x_offset = (self.width() - text_rect.width()) // 2
+        y_offset = (self.height() - text_rect.height()) // 2
+        painter.drawText(QPoint(x_offset, y_offset), text)
+
+        if last_direction == 0:
+            allow_left = False
+        else:
+            allow_right = False
 
     def update_frame(self):
         ret, frame = self.live_feed.read()
@@ -213,7 +214,7 @@ if __name__ == "__main__":
     print('Starting RapidVision...')
 
     # Load average camera focal length data from JSON file
-    sv.avg_cam_focal_length = uf.extract_json_2_dict(uf.absolute_path('RapidVision', 'cam_cali_data.json', 'data'))
+    sv.avg_cam_focal_length = extract_json_2_dict(absolute_path('RapidVision', 'cam_cali_data.json', 'data'))
 
     # Load the YOLO model and set it to use CUDA if available
     if torch.cuda.is_available():
@@ -225,14 +226,12 @@ if __name__ == "__main__":
         device = torch.device('cpu')
 
     if device.__str__() != f'privateuseone:{device.index}':
-        model = torch.load(uf.absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location=device)
+        model = torch.load(absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location=device)
     else:
-        model = torch.load(uf.absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location='cpu')
+        model = torch.load(absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location='cpu')
         print("Model is loaded on CPU")
         model = model.to(device)
         print(f"Model is loaded on device: {device}")
-
-    print(f"Model is loaded on device: {next(model.parameters()).device}")
 
     # Start the detection thread as a daemon process
     detection_thread = Thread(target=detections.read_objects, args=(model, device,), daemon=True)
