@@ -217,11 +217,8 @@ if __name__ == "__main__":
     sv.avg_cam_focal_length = extract_json_2_dict(absolute_path('RapidVision', 'cam_cali_data.json', 'data'))
 
     # Load the YOLO model and set it to use CUDA if available
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-    elif torch_directml.is_available():
+    if torch_directml.is_available():
         device = torch_directml.device()
-        print(device)
     else:
         device = torch.device('cpu')
 
@@ -231,7 +228,7 @@ if __name__ == "__main__":
         model = torch.load(absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location='cpu')
         print("Model is loaded on CPU")
         model = model.to(device)
-        print(f"Model is loaded on device: {device}")
+    print(f"Model is loaded on device: {device}")
 
     # Start the detection thread as a daemon process
     detection_thread = Thread(target=detections.read_objects, args=(model, device,), daemon=True)

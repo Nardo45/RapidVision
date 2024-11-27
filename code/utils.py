@@ -59,7 +59,7 @@ def absolute_path(parent_folder, file_or_folder_name=None, search_folder_name=No
             return file_path
 
     if not file_or_folder_name and not search_folder_name:
-        raise ValueError("You must specify either a file or a folder to search for.")
+        return caller_directory
     
     for root, dirs, files in os.walk(caller_directory):
         if search_folder_name and search_folder_name in dirs:
