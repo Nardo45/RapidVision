@@ -238,7 +238,7 @@ if __name__ == "__main__":
         model = torch.load(absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location='cpu')
         print("Model is loaded on CPU")
         model = model.to(device)
-        print(f"Model is loaded on device: {device}")
+    print(f"Model is loaded on device: {device}")
 
     # Start the detection thread as a daemon process
     detection_thread = Thread(target=detections.read_objects, args=(model, device,), daemon=True)
