@@ -1,5 +1,5 @@
 # Import necessary libraries
-import sys, cv2, detections, torch, torch_directml
+import sys, cv2, detections, torch, torch_directml, logging, warnings
 
 # Import custom modules
 from utils import absolute_path, extract_json_2_dict
@@ -7,7 +7,7 @@ from shared_data import shared_variables as sv, Settings
 
 # Import required classes from PyQt5
 from threading import Thread
-from PyQt5.QtGui import QImage, QPainter
+from PyQt5.QtGui import QImage, QPainter, QIcon
 from PyQt5.QtCore import QTimer, QPoint, Qt
 from PyQt5.QtWidgets import (
     QApplication, QPushButton, QSpinBox, QWidget,
@@ -50,6 +50,7 @@ class SettingsMenu(QDialog):
 
         self.fps_controller_spinbox = QSpinBox()
         self.fps_controller_spinbox.setMinimum(MIN_FPS)
+        self.fps_controller_spinbox.setMaximum(MAX_FPS)
         self.fps_controller_spinbox.setValue(Settings.fps_controller)
         self.fps_controller_spinbox.valueChanged.connect(self.update_fps)
         layout.addWidget(self.fps_controller_spinbox)
@@ -69,7 +70,7 @@ class SettingsMenu(QDialog):
         button.setText(f"{text}: {'ON' if getattr(Settings, setting_name) else 'OFF'}")
 
     def calibrate_camera(self):
-        Settings.calibrate_camera = True
+        Settings.calibrate_camera = not Settings.calibrate_camera
         self.close()
 
     def update_fps(self, new_fps):
@@ -92,15 +93,17 @@ class VideoWidget(QWidget):
         self.update_fps(Settings.fps_controller)
 
         self.image = None
-        self.num_of_detections = None
-        self.num_of_detections_per_class = None
+        self.num_of_detections: int = 0
+        self.num_of_detections_per_class: int = 0
+        self.y_point = 0
+        self.x_point = 0
 
     def convert_cv2qimage(self, cv2_img):
         """Convert OpenCV image to QImage"""
         if sv.latest_detections is not None and not Settings.calibrate_camera:
             self.num_of_detections, self.num_of_detections_per_class, new_frame = detections.display_detections(cv2_img)
         else:
-            self.num_of_detections, self.num_of_detections_per_class, new_frame = None, None, cv2_img
+            self.num_of_detections, self.num_of_detections_per_class, new_frame = 0, 0, cv2_img
 
         rgb_image = cv2.cvtColor(new_frame, cv2.COLOR_BGR2RGB)
         height, width, ch = rgb_image.shape
@@ -125,11 +128,13 @@ class VideoWidget(QWidget):
         scaled_image = self.image.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         x_offset = (self.width() - scaled_image.width()) // 2
         y_offset = (self.height() - scaled_image.height()) // 2
+        self.y_point = y_offset
+        self.x_point = x_offset
         painter.drawImage(QPoint(x_offset, y_offset), scaled_image)
 
     def draw_detections(self, painter: QPainter):
-        x_offset = 5
-        y_offset = 5
+        x_offset = self.x_point + 5
+        y_offset = self.y_point + 5
         painter.setPen(Qt.white)
 
         if Settings.show_amount_of_detections:
@@ -199,7 +204,7 @@ class VideoWidget(QWidget):
             last_direction = 0
             self.reset_camera()
 
-        elif event.key() == Qt.Key.Key_Right and allow_right:
+        elif event.key() == Qt.Key_Right and allow_right:
             sv.cam_index += 1
             allow_left = True
             last_direction = 1
@@ -212,16 +217,18 @@ class VideoWidget(QWidget):
 # Main entry point of the application
 if __name__ == "__main__":
     print('Starting RapidVision...')
+    # Suppress all warnings
+    warnings.filterwarnings("ignore")
+
+    # Set specific loggers to CRITICAL to suppress their logs
+    logging.getLogger("torch").setLevel(logging.CRITICAL)
 
     # Load average camera focal length data from JSON file
     sv.avg_cam_focal_length = extract_json_2_dict(absolute_path('RapidVision', 'cam_cali_data.json', 'data'))
 
-    # Load the YOLO model and set it to use CUDA if available
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-    elif torch_directml.is_available():
+    # Load the model and check for DirectML for acceleration
+    if torch_directml.is_available():
         device = torch_directml.device()
-        print(device)
     else:
         device = torch.device('cpu')
 
@@ -241,6 +248,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     widget = VideoWidget()
     widget.setWindowTitle('RapidVision')
+    #widget.setWindowIcon(QIcon(absolute_path('RapidVision', 'RapidVision_Icon.png', 'Icon'))) TODO: Create an icon and use this line to display it
     widget.show()
 
     # Ensure the detection thread is stopped when the main window is closed

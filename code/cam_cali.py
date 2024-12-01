@@ -20,6 +20,10 @@ def cam_cali():
     objp[:, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2)
 
     while num_imgz < NUM_SAMPLES and sv.latest_frame is not None:
+        if not Settings.calibrate_camera:
+            print('User cancelled calibration')
+            return
+        
         frame = sv.latest_frame
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
