@@ -1,8 +1,8 @@
 import cv2
 import numpy as np
 
-from utils import absolute_path, save_2_json
-from shared_data import shared_variables as sv, Settings
+from rapidvision.utils.general import absolute_path, save_2_json
+from rapidvision.detection.shared_data import shared_variables as sv, Settings
 
 def cam_cali():
     """Calibrate the camera using a checkerboard pattern."""
@@ -25,7 +25,7 @@ def cam_cali():
             return
         
         frame = sv.latest_frame
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 and frame.shape[2] == 3 else frame.copy()
 
         ret, corners = cv2.findChessboardCorners(gray, CHECKERBOARD, None)
         
@@ -33,8 +33,7 @@ def cam_cali():
             objpoints.append(objp)
             corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
             imgpoints.append(corners2)
-            sv.latest_frame = cv2.drawChessboardCorners(gray, CHECKERBOARD, corners2, ret)
-
+            
             num_imgz += 1
             print(f'frame {num_imgz}/{NUM_SAMPLES}')
             cv2.waitKey(200)

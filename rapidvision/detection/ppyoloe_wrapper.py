@@ -1,24 +1,21 @@
-import cv2
+import cv2, numpy as np, torchvision, msgpack
 
 from threading   import Lock
 from collections import Counter
-from torch       import from_numpy
-from shared_data import shared_variables as sv, Settings
-from cam_cali    import cam_cali
-from utils       import extract_json_2_dict, absolute_path
-
-# Lock to ensure thread-safe access to the frame
-frame_lock = Lock()
+from torch       import from_numpy, no_grad, max as torch_max, tensor, float32 as torch_float32, stack as torch_stack
+from rapidvision.detection.shared_data import shared_variables as sv, Settings
+from rapidvision.camera.calibration import cam_cali
+from rapidvision.utils.general import extract_json_2_dict, absolute_path
 
 # Dictionary to store the smoothed confidence scores for each detected object
 stored_conf_score = {}
 
 def draw_bounding_boxes(frame, detections):
     """Draw bounding boxes around detected objects."""
-    coords = detections.prediction.bboxes_xyxy
-    conf_scores = detections.prediction.confidence
-    labels = detections.prediction.labels
-    class_names = detections.class_names
+    coords = detections["predictions"]["bboxes_xyxy"]
+    conf_scores = detections["predictions"]["confidence"]
+    labels = detections["predictions"]["labels"]
+    class_names = detections["class_names"]
     label_names = [class_names[label].capitalize() for label in labels]
 
     # Alpha controls the smoothing factor
@@ -72,7 +69,7 @@ def calculate_est_distance(bbox, label_name, dimensions_dict):
     aspect_ratio_tolerance = 0.8
 
     try:
-        FOCAL_LENGTH = sv.avg_cam_focal_length[sv.cam_index]
+        FOCAL_LENGTH = sv.get_cam_focal_len()[sv.get_cam_idx()]
     except KeyError:
         FOCAL_LENGTH = 800
 
@@ -99,9 +96,9 @@ def calculate_est_distance(bbox, label_name, dimensions_dict):
 
 def draw_est_distance(frame, detections):
     """Estimate distances to detected objects."""
-    bboxes = detections.prediction.bboxes_xyxy
-    labels = detections.prediction.labels
-    class_names = detections.class_names
+    bboxes = detections["predictions"]["bboxes_xyxy"]
+    labels = detections["predictions"]["labels"]
+    class_names = detections["class_names"]
 
 
     dimensions_dict = extract_json_2_dict(absolute_path('RapidVision', 'object_dimensions.json', 'data'))
@@ -142,7 +139,7 @@ def draw_est_distance(frame, detections):
 def display_detections(frame):
     """Draw bounding boxes around detected objects and get number of detected objects."""
 
-    detections = sv.latest_detections
+    detections = sv.get_latest_detections()
     frame = draw_bounding_boxes(frame, detections)
     detection_num, class_counts = count_detections(detections)
 
@@ -157,8 +154,8 @@ def display_detections(frame):
 
 def count_detections(detections):
     """Count total detections with a score above the threshold."""
-    detected_class_IDs = detections.prediction.labels
-    class_names = detections.class_names
+    detected_class_IDs = detections["predictions"]["labels"]
+    class_names = detections["class_names"]
 
     detection_num = len(detected_class_IDs)
 
@@ -168,24 +165,98 @@ def count_detections(detections):
 
     return detection_num, formatted_output.split(', ')
 
+def decode_ppyoloe_output(output_tensor, class_names, orig_size, conf_thresh=0.5, iou_thresh=0.5):
+    """
+    Decode raw PP-YOLOE output tensor to usable detections.
+
+    Args:
+        output_tensor (torch.Tensor): shape [1, N, M]
+        class_names (List[str]): list of class names
+        conf_thresh (float): minimum confidence threshold
+        iou_thresh (float): IOU threshold for NMS
+
+    Returns:
+        A dict mimicking YOLO-NAS-style structure.
+    """
+    # Remove batch dimensions: [1, N, M] -> [N, M]
+    predictions = output_tensor[0]
+    num_classes = predictions.shape[1] - 5
+
+    boxes = predictions[:, :4] # x1, y1, x2, y2
+    objectness = predictions[:, 4]
+    class_probs = predictions[:, 5:]
+
+    # Final score = objectness * class prob
+    scores, labels = torch_max(class_probs, dim=1)
+    final_scores = objectness * scores
+
+    # Filter by confidence threshold
+    keep = final_scores > conf_thresh # Creates a boolean mask
+    boxes = boxes[keep]
+    final_scores = final_scores[keep]
+    labels = labels[keep]
+
+    # Scale back to original image size
+    orig_h, orig_w = orig_size
+    scale_x = orig_w / 640
+    scale_y = orig_h / 640
+
+    # Convert from [cx, cy, w, h] to [x1, y1, x2, y2]
+    cx, cy, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
+    x1 = cx - w / 2
+    y1 = cy - h / 2
+    x2 = cx + w / 2
+    y2 = cy + h / 2
+    boxes = torch_stack([x1, y1, x2, y2], dim=1)
+
+    boxes[:, 0] *= scale_x  # x1
+    boxes[:, 2] *= scale_x  # x2
+    boxes[:, 1] *= scale_y  # y1
+    boxes[:, 3] *= scale_y  # y2
+
+    # Apply NMSsudo
+    nms_indices = torchvision.ops.nms(boxes, final_scores, iou_thresh)
+    boxes = boxes[nms_indices]
+    final_scores = final_scores[nms_indices]
+    labels = labels[nms_indices]
+
+    return {
+        "predictions": {
+            "bboxes_xyxy": boxes.cpu().numpy(),
+            "confidence": final_scores.cpu().numpy(),
+            "labels": labels.cpu().numpy()
+        },
+        "class_names": class_names
+    }
+    
 
 def read_objects(model, device):
     """Read objects from the live feed and update latest detections."""
+    coco_file = absolute_path("RapidVision", "coco_classes.msgpack", "config")
+    with open(coco_file, "rb") as file:
+        coco_classes = msgpack.unpack(file, strict_map_key=False)
+
     while not sv.stop_thread.is_set():
-        # If the camera calibration flag is set, calibrate the camera
         if Settings.calibrate_camera:
             print('Calibrating camera...')
             cam_cali()
         
         # If a new frame is available, perform object detection and update the latest detections
-        elif sv.latest_frame is not None:
-            latest_frame = sv.latest_frame
-            frame = latest_frame.copy()
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert frame to RGB as TensorFlow expects RGB format
-            frame_tensor = from_numpy(frame).permute(2, 0, 1).unsqueeze(0).to(device)  # Convert frame to PyTorch tensor
-            
-            # Perform object detection on the frame
-            results = model.predict(frame_tensor, conf=0.4, fuse_model=False)  # Perform object detection on the frame
+        elif sv.get_latest_frame() is not None:
+            img = sv.get_latest_frame()
 
-            # Update the latest results and detections in a thread-safe manner
-            sv.latest_detections = results
+            # Preprocess the frame for PPYOLOE
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # Convert frame to RGB as TensorFlow expects RGB format
+            img = cv2.resize(img, (640, 640)) # Resize to expected input size
+            img = img.astype(np.float32) / 255.0
+            img = (img - np.array([0.485, 0.456, 0.406], dtype=np.float32)) / np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            img = np.transpose(img, (2, 0, 1))
+            img_tensor = from_numpy(img).unsqueeze(0).to(device)  # Convert frame to PyTorch tensor
+            
+            with no_grad():
+                outputs = model(img_tensor)
+
+            detections = decode_ppyoloe_output(outputs, coco_classes, (1200, 1920))
+
+            # Postprocess raw output and save the result
+            sv.set_latest_detections(detections)

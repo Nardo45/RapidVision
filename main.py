@@ -1,9 +1,13 @@
 # Import necessary libraries
-import sys, cv2, detections, torch, torch_directml, logging, warnings
+import sys, cv2, torch
+
+from third_party.ppyoloe.ppyoloe_l import Exp
+from rapidvision.detection import ppyoloe_wrapper as detections
 
 # Import custom modules
-from utils import absolute_path, extract_json_2_dict
-from shared_data import shared_variables as sv, Settings
+from rapidvision.utils.general import absolute_path, extract_json_2_dict
+from rapidvision.detection import shared_data
+from rapidvision.camera import vision_io
 
 # Import required classes from PyQt5
 from threading import Thread
@@ -45,13 +49,13 @@ class SettingsMenu(QDialog):
         self.cam_calibration_button.clicked.connect(self.calibrate_camera)
         layout.addWidget(self.cam_calibration_button)
 
-        self.fps_controller_label = QLabel(f'FPS: {Settings.fps_controller}')
+        self.fps_controller_label = QLabel(f'FPS: {shared_data.Settings.fps_controller}')
         layout.addWidget(self.fps_controller_label)
 
         self.fps_controller_spinbox = QSpinBox()
         self.fps_controller_spinbox.setMinimum(MIN_FPS)
         self.fps_controller_spinbox.setMaximum(MAX_FPS)
-        self.fps_controller_spinbox.setValue(Settings.fps_controller)
+        self.fps_controller_spinbox.setValue(shared_data.Settings.fps_controller)
         self.fps_controller_spinbox.valueChanged.connect(self.update_fps)
         layout.addWidget(self.fps_controller_spinbox)
 
@@ -60,17 +64,17 @@ class SettingsMenu(QDialog):
         layout.addWidget(self.close_button)
 
     def create_toggle_buttons(self, layout, text, setting_name):
-        button = QPushButton(f"{text}: {'ON' if getattr(Settings, setting_name) else 'OFF'}")
+        button = QPushButton(f"{text}: {'ON' if getattr(shared_data.Settings, setting_name) else 'OFF'}")
         button.setCheckable(True)
         button.clicked.connect(lambda: self.toggle_setting(button, text, setting_name))
         layout.addWidget(button)
 
     def toggle_setting(self, button, text, setting_name):
-        setattr(Settings, setting_name, not getattr(Settings, setting_name))
-        button.setText(f"{text}: {'ON' if getattr(Settings, setting_name) else 'OFF'}")
+        setattr(shared_data.Settings, setting_name, not getattr(shared_data.Settings, setting_name))
+        button.setText(f"{text}: {'ON' if getattr(shared_data.Settings, setting_name) else 'OFF'}")
 
     def calibrate_camera(self):
-        Settings.calibrate_camera = not Settings.calibrate_camera
+        shared_data.Settings.calibrate_camera = not shared_data.Settings.calibrate_camera
         self.close()
 
     def update_fps(self, new_fps):
@@ -83,14 +87,9 @@ class VideoWidget(QWidget):
     """A class for displaying video from OpenCV and detection boxes"""
     def __init__(self):
         QWidget.__init__(self)
-        self.live_feed = cv2.VideoCapture(sv.cam_index)
-        # Set the camera to its maximum resolution
-        self.live_feed.set(cv2.CAP_PROP_FRAME_WIDTH, 9999)
-        self.live_feed.set(cv2.CAP_PROP_FRAME_HEIGHT, 9999)
-
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
-        self.update_fps(Settings.fps_controller)
+        self.update_fps(shared_data.Settings.fps_controller)
 
         self.image = None
         self.num_of_detections: int = 0
@@ -100,7 +99,7 @@ class VideoWidget(QWidget):
 
     def convert_cv2qimage(self, cv2_img):
         """Convert OpenCV image to QImage"""
-        if sv.latest_detections is not None and not Settings.calibrate_camera:
+        if shared_data.shared_variables.get_latest_detections() is not None and not shared_data.Settings.calibrate_camera:
             self.num_of_detections, self.num_of_detections_per_class, new_frame = detections.display_detections(cv2_img)
         else:
             self.num_of_detections, self.num_of_detections_per_class, new_frame = 0, 0, cv2_img
@@ -118,7 +117,7 @@ class VideoWidget(QWidget):
         font.setPointSize(font_size)
         painter.setFont(font)
 
-        if self.image:
+        if self.image is not None:
             self.draw_image(painter)
             self.draw_detections(painter)
         else:
@@ -137,11 +136,11 @@ class VideoWidget(QWidget):
         y_offset = self.y_point + 5
         painter.setPen(Qt.white)
 
-        if Settings.show_amount_of_detections:
+        if shared_data.Settings.show_amount_of_detections:
             text = f"Detections: {self.num_of_detections}"
             y_offset = self.draw_text(painter, text, x_offset, y_offset)
 
-        if Settings.show_amount_of_detections_per_class and self.num_of_detections_per_class:
+        if shared_data.Settings.show_amount_of_detections_per_class and self.num_of_detections_per_class:
             for text in self.num_of_detections_per_class:
                 y_offset = self.draw_text(painter, text, x_offset, y_offset)
 
@@ -166,13 +165,11 @@ class VideoWidget(QWidget):
             allow_right = False
 
     def update_frame(self):
-        ret, frame = self.live_feed.read()
-        sv.latest_frame = frame
-
-        if ret:
-            self.image = self.convert_cv2qimage(frame)
+        new_img = shared_data.shared_variables.get_latest_frame()
+        if new_img is not None:
+            self.image = self.convert_cv2qimage(new_img)
         else:
-            self.image = None
+            self.image = new_img
         self.update()
 
     def update_fps(self, frames):
@@ -181,12 +178,15 @@ class VideoWidget(QWidget):
             self.timer.stop()
             self.timer.start(int(self.new_interval))
 
+    # TODO: set a flag in sv to tell the camera thread to reset
+    '''
     def reset_camera(self):
         self.live_feed.release()
-        self.live_feed = cv2.VideoCapture(sv.cam_index)
+        self.live_feed = cv2.VideoCapture(shared_data.shared_variables.get_cam_idx())
 
         self.live_feed.set(cv2.CAP_PROP_FRAME_WIDTH, 9999)
         self.live_feed.set(cv2.CAP_PROP_FRAME_HEIGHT, 9999)
+        '''
 
     def display_settings(self):
         self.settings_menu = SettingsMenu()
@@ -199,16 +199,16 @@ class VideoWidget(QWidget):
             self.display_settings()
 
         elif event.key() == Qt.Key_Left and allow_left:
-            sv.cam_index -= 1
+            shared_data.shared_variables.set_cam_idx(shared_data.shared_variables.get_cam_idx() - 1)
             allow_right = True
             last_direction = 0
-            self.reset_camera()
+            #self.reset_camera()
 
         elif event.key() == Qt.Key_Right and allow_right:
-            sv.cam_index += 1
+            shared_data.shared_variables.set_cam_idx(shared_data.shared_variables.get_cam_idx() + 1)
             allow_left = True
             last_direction = 1
-            self.reset_camera()
+            #self.reset_camera()
 
         else:
             super().keyPressEvent(event)  # Call the base class method for other key presses
@@ -217,32 +217,22 @@ class VideoWidget(QWidget):
 # Main entry point of the application
 if __name__ == "__main__":
     print('Starting RapidVision...')
-    # Suppress all warnings
-    warnings.filterwarnings("ignore")
-
-    # Set specific loggers to CRITICAL to suppress their logs
-    logging.getLogger("torch").setLevel(logging.CRITICAL)
-
     # Load average camera focal length data from JSON file
-    sv.avg_cam_focal_length = extract_json_2_dict(absolute_path('RapidVision', 'cam_cali_data.json', 'data'))
+    shared_data.shared_variables.set_cam_focal_len(extract_json_2_dict(absolute_path('RapidVision', 'cam_cali_data.json', 'data')))
 
-    # Load the model and check for DirectML for acceleration
-    if torch_directml.is_available():
-        device = torch_directml.device()
-    else:
-        device = torch.device('cpu')
+    # Set Device to CPU
+    device = torch.device('cpu')
 
-    if device.__str__() != f'privateuseone:{device.index}':
-        model = torch.load(absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location=device)
-    else:
-        model = torch.load(absolute_path('RapidVision', 'yolo_nas_l.pt', 'model'), map_location='cpu')
-        print("Model is loaded on CPU")
-        model = model.to(device)
-    print(f"Model is loaded on device: {device}")
+    # Load model to CPU
+    model = torch.load(absolute_path('RapidVision', 'ppyoloe_crn_l_300e_coco.pt', 'model'), map_location='cpu', weights_only=False)
+    model.eval()
 
-    # Start the detection thread as a daemon process
+    # Start seperate threads as daemon processes
     detection_thread = Thread(target=detections.read_objects, args=(model, device,), daemon=True)
     detection_thread.start()
+
+    camera_thread = Thread(target=vision_io.camera_capture, daemon=True)
+    camera_thread.start()
 
     # Create and show the main window
     app = QApplication(sys.argv)
@@ -252,7 +242,7 @@ if __name__ == "__main__":
     widget.show()
 
     # Ensure the detection thread is stopped when the main window is closed
-    app.aboutToQuit.connect(lambda: sv.stop_thread.set())
+    app.aboutToQuit.connect(lambda: shared_data.shared_variables.stop_thread.set())
 
     # Execute the application
     sys.exit(app.exec_())
