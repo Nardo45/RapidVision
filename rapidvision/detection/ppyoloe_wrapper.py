@@ -1,8 +1,7 @@
 import cv2, numpy as np, torchvision, msgpack
 
-from threading   import Lock
 from collections import Counter
-from torch       import from_numpy, no_grad, max as torch_max, tensor, float32 as torch_float32, stack as torch_stack
+from torch       import from_numpy, no_grad, max as torch_max, stack as torch_stack
 from rapidvision.detection.shared_data import shared_variables as sv, Settings
 from rapidvision.camera.calibration import cam_cali
 from rapidvision.utils.general import extract_json_2_dict, absolute_path
@@ -42,7 +41,7 @@ def draw_bounding_boxes(frame, detections):
         cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
 
         # Prepare text
-        label_text = f"{label_names[i]}: {conf_score*100:.1f}%"
+        label_text = f"{label_name}: {conf_score*100:.1f}%"
         text_size, _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
         text_x = x1 + 5
         text_y = max(y1 - 5, text_size[1] + 10)
@@ -165,7 +164,7 @@ def count_detections(detections):
 
     return detection_num, formatted_output.split(', ')
 
-def decode_ppyoloe_output(output_tensor, class_names, orig_size, conf_thresh=0.5, iou_thresh=0.5):
+def decode_ppyoloe_output(output_tensor, class_names, scale, paddings, conf_thresh=0.5, iou_thresh=0.5):
     """
     Decode raw PP-YOLOE output tensor to usable detections.
 
@@ -180,7 +179,6 @@ def decode_ppyoloe_output(output_tensor, class_names, orig_size, conf_thresh=0.5
     """
     # Remove batch dimensions: [1, N, M] -> [N, M]
     predictions = output_tensor[0]
-    num_classes = predictions.shape[1] - 5
 
     boxes = predictions[:, :4] # x1, y1, x2, y2
     objectness = predictions[:, 4]
@@ -196,11 +194,6 @@ def decode_ppyoloe_output(output_tensor, class_names, orig_size, conf_thresh=0.5
     final_scores = final_scores[keep]
     labels = labels[keep]
 
-    # Scale back to original image size
-    orig_h, orig_w = orig_size
-    scale_x = orig_w / 640
-    scale_y = orig_h / 640
-
     # Convert from [cx, cy, w, h] to [x1, y1, x2, y2]
     cx, cy, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
     x1 = cx - w / 2
@@ -209,10 +202,9 @@ def decode_ppyoloe_output(output_tensor, class_names, orig_size, conf_thresh=0.5
     y2 = cy + h / 2
     boxes = torch_stack([x1, y1, x2, y2], dim=1)
 
-    boxes[:, 0] *= scale_x  # x1
-    boxes[:, 2] *= scale_x  # x2
-    boxes[:, 1] *= scale_y  # y1
-    boxes[:, 3] *= scale_y  # y2
+    # Undo padding and scaling
+    boxes[:, [0, 2]] = (boxes[:, [0, 2]] - paddings[0]) / scale
+    boxes[:, [1, 3]] = (boxes[:, [1, 3]] - paddings[1]) / scale
 
     # Apply NMSsudo
     nms_indices = torchvision.ops.nms(boxes, final_scores, iou_thresh)
@@ -230,6 +222,49 @@ def decode_ppyoloe_output(output_tensor, class_names, orig_size, conf_thresh=0.5
     }
     
 
+
+def letterbox_image(image, target_size=(640, 640), color=(114, 114, 114)):
+    """
+    Resize image with unchanged aspect ratio using padding.
+    
+    Args:
+        image (np.ndarray): Input image.
+        target_size (tuple): Desired output size (width, height).
+        color (tuple): Padding color in BGR format.
+
+    Returns:
+        np.ndarray: Resized and padded image.
+        float: Scale factor used for resizing.
+        int: Left padding.
+        int: Top padding.
+    """
+    orig_h, orig_w = image.shape[:2]
+    target_w, target_h = target_size
+
+    scale = min(target_w / orig_w, target_h / orig_h)
+    new_w = round(orig_w * scale)
+    new_h = round(orig_h * scale)
+
+    resized_image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+    # Padding
+    pad_w = target_w - new_w
+    pad_h = target_h - new_h
+    pad_left = pad_w // 2
+    pad_top = pad_h // 2
+
+    padded_image = cv2.copyMakeBorder(
+        resized_image,
+        pad_top, pad_h - pad_top,
+        pad_left, pad_w - pad_left,
+        cv2.BORDER_CONSTANT,
+        value=color
+    )
+
+    return padded_image, scale, pad_left, pad_top
+
+
+
 def read_objects(model, device):
     """Read objects from the live feed and update latest detections."""
     coco_file = absolute_path("RapidVision", "coco_classes.msgpack", "config")
@@ -246,17 +281,17 @@ def read_objects(model, device):
             img = sv.get_latest_frame()
 
             # Preprocess the frame for PPYOLOE
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # Convert frame to RGB as TensorFlow expects RGB format
-            img = cv2.resize(img, (640, 640)) # Resize to expected input size
-            img = img.astype(np.float32) / 255.0
-            img = (img - np.array([0.485, 0.456, 0.406], dtype=np.float32)) / np.array([0.229, 0.224, 0.225], dtype=np.float32)
-            img = np.transpose(img, (2, 0, 1))
-            img_tensor = from_numpy(img).unsqueeze(0).to(device)  # Convert frame to PyTorch tensor
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # Convert frame to RGB as TensorFlow expects RGB format
+            img_padded, scale, pad_left, pad_top = letterbox_image(img_rgb, (640, 640)) # Resize to expected input size
+
+            img_norm = img_padded.astype(np.float32) / 255.0
+            img_norm = (img_norm - np.array([0.485, 0.456, 0.406], dtype=np.float32)) / np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            img_tensor = from_numpy(np.transpose(img_norm, (2, 0, 1))).unsqueeze(0).to(device)  # Convert frame to PyTorch tensor
             
             with no_grad():
                 outputs = model(img_tensor)
 
-            detections = decode_ppyoloe_output(outputs, coco_classes, (1200, 1920))
+            detections = decode_ppyoloe_output(outputs, coco_classes, scale, (pad_left, pad_top))
 
             # Postprocess raw output and save the result
             sv.set_latest_detections(detections)

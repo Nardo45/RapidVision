@@ -1,7 +1,9 @@
 # Import necessary libraries
 import sys, cv2, torch
 
-from third_party.ppyoloe.ppyoloe_l import Exp
+import third_party.ppyoloe
+sys.modules['ppyoloe'] = third_party.ppyoloe
+
 from rapidvision.detection import ppyoloe_wrapper as detections
 
 # Import custom modules
@@ -11,7 +13,7 @@ from rapidvision.camera import vision_io
 
 # Import required classes from PyQt5
 from threading import Thread
-from PyQt5.QtGui import QImage, QPainter, QIcon
+from PyQt5.QtGui import QImage, QPainter
 from PyQt5.QtCore import QTimer, QPoint, Qt
 from PyQt5.QtWidgets import (
     QApplication, QPushButton, QSpinBox, QWidget,
@@ -21,7 +23,7 @@ from PyQt5.QtWidgets import (
 # Define global variables
 allow_right = True
 allow_left = True
-last_direction = None
+last_direction = 2
 
 # Consts
 SETTINGS_WINDOW_WIDTH = 300
@@ -97,12 +99,12 @@ class VideoWidget(QWidget):
         self.y_point = 0
         self.x_point = 0
 
-    def convert_cv2qimage(self, cv2_img):
+    def convert_cv2qimage(self, cv_img):
         """Convert OpenCV image to QImage"""
         if shared_data.shared_variables.get_latest_detections() is not None and not shared_data.Settings.calibrate_camera:
-            self.num_of_detections, self.num_of_detections_per_class, new_frame = detections.display_detections(cv2_img)
+            self.num_of_detections, self.num_of_detections_per_class, new_frame = detections.display_detections(cv_img)
         else:
-            self.num_of_detections, self.num_of_detections_per_class, new_frame = 0, 0, cv2_img
+            self.num_of_detections, self.num_of_detections_per_class, new_frame = 0, 0, cv_img
 
         rgb_image = cv2.cvtColor(new_frame, cv2.COLOR_BGR2RGB)
         height, width, ch = rgb_image.shape
@@ -120,6 +122,10 @@ class VideoWidget(QWidget):
         if self.image is not None:
             self.draw_image(painter)
             self.draw_detections(painter)
+            if allow_left != True:
+                allow_left = True
+            if allow_right != True:
+                allow_right = True
         else:
             self.draw_no_feed(painter)
 
@@ -159,9 +165,9 @@ class VideoWidget(QWidget):
         y_offset = (self.height() - text_rect.height()) // 2
         painter.drawText(QPoint(x_offset, y_offset), text)
 
-        if last_direction == 0:
+        if last_direction == 0 and allow_left:
             allow_left = False
-        else:
+        elif last_direction == 1 and allow_right:
             allow_right = False
 
     def update_frame(self):
@@ -178,16 +184,6 @@ class VideoWidget(QWidget):
             self.timer.stop()
             self.timer.start(int(self.new_interval))
 
-    # TODO: set a flag in sv to tell the camera thread to reset
-    '''
-    def reset_camera(self):
-        self.live_feed.release()
-        self.live_feed = cv2.VideoCapture(shared_data.shared_variables.get_cam_idx())
-
-        self.live_feed.set(cv2.CAP_PROP_FRAME_WIDTH, 9999)
-        self.live_feed.set(cv2.CAP_PROP_FRAME_HEIGHT, 9999)
-        '''
-
     def display_settings(self):
         self.settings_menu = SettingsMenu()
         self.settings_menu.exec_()
@@ -202,13 +198,13 @@ class VideoWidget(QWidget):
             shared_data.shared_variables.set_cam_idx(shared_data.shared_variables.get_cam_idx() - 1)
             allow_right = True
             last_direction = 0
-            #self.reset_camera()
+            shared_data.shared_variables.set_reset_camera(True)
 
         elif event.key() == Qt.Key_Right and allow_right:
             shared_data.shared_variables.set_cam_idx(shared_data.shared_variables.get_cam_idx() + 1)
             allow_left = True
             last_direction = 1
-            #self.reset_camera()
+            shared_data.shared_variables.set_reset_camera(True)
 
         else:
             super().keyPressEvent(event)  # Call the base class method for other key presses

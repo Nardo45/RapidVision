@@ -196,7 +196,7 @@ class PPYOLOEHead(nn.Module):
                 w = int(self.eval_input_size[1] / stride)
             shift_x = torch.arange(end=w, device=device) + self.grid_cell_offset
             shift_y = torch.arange(end=h, device=device) + self.grid_cell_offset
-            shift_y, shift_x = torch.meshgrid(shift_y, shift_x)
+            shift_y, shift_x = torch.meshgrid(shift_y, shift_x, indexing='ij')
             anchor_point = torch.stack(
                     [shift_x, shift_y], axis=-1).to(torch.float)
             # anchor_point = paddle.cast(
@@ -321,7 +321,7 @@ class PPYOLOEHead(nn.Module):
             cell_half_size = grid_cell_size * stride * 0.5
             shift_x = (torch.arange(end=w, device=device) + grid_cell_offset) * stride
             shift_y = (torch.arange(end=h, device=device) + grid_cell_offset) * stride
-            shift_y, shift_x = torch.meshgrid(shift_y, shift_x)
+            shift_y, shift_x = torch.meshgrid(shift_y, shift_x, indexing='ij')
             anchor = torch.stack(
                 [
                     shift_x - cell_half_size, shift_y - cell_half_size,

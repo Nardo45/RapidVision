@@ -12,6 +12,8 @@ class Settings:
     calibrate_camera = False
     # Flag to indicate whether to estimate distances
     distance_estimation = True
+    # Current camera profile
+    current_camera_profile = None
 
 # Define a class to hold shared variables between threads
 class shared_variables:
@@ -20,6 +22,8 @@ class shared_variables:
     latest_frame = None
     avg_cam_focal_length = {}
     cam_index = 0
+    current_cam_profile = None
+    reset_camera = False
     stop_thread = threading.Event()
 
     # Class-level lock for thread-safety
@@ -44,6 +48,16 @@ class shared_variables:
     def set_cam_idx(cls, idx):
         with cls.lock:
             cls.cam_index = idx
+
+    @classmethod
+    def set_current_cam_profile(cls, profile):
+        with cls.lock:
+            cls.current_cam_profile = profile
+
+    @classmethod
+    def set_reset_camera(cls, reset):
+        with cls.lock:
+            cls.reset_camera = reset
     
     @classmethod
     def get_latest_detections(cls):
@@ -64,3 +78,13 @@ class shared_variables:
     def get_cam_idx(cls):
         with cls.lock:
             return cls.cam_index
+        
+    @classmethod
+    def get_current_cam_profile(cls):
+        with cls.lock:
+            return cls.current_cam_profile
+        
+    @classmethod
+    def get_reset_camera(cls):
+        with cls.lock:
+            return cls.reset_camera

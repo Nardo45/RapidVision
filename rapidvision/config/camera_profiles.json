@@ -1,0 +1,14 @@
+{
+  "common_camera_profiles": [
+    { "width": 1920, "height": 1080, "fps": 30 },
+    { "width": 1920, "height": 1080, "fps": 60 },
+    { "width": 1280, "height": 720,  "fps": 30 },
+    { "width": 1280, "height": 720,  "fps": 60 },
+    { "width": 1024, "height": 768,  "fps": 30 },
+    { "width": 800,  "height": 600,  "fps": 30 },
+    { "width": 640,  "height": 480,  "fps": 30 },
+    { "width": 640,  "height": 480,  "fps": 60 },
+    { "width": 3840, "height": 2160, "fps": 30 },
+    { "width": 3840, "height": 2160, "fps": 60 }
+  ]
+}
