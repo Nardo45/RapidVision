@@ -5,7 +5,7 @@ from inspect import stack
 
 
 # Function to extract JSON data from a file and convert it into a Python dictionary
-def extract_json_2_dict(path_2_json):
+def extract_json_2_dict(path_2_json) -> dict:
     """
     Extracts data from a JSON file and converts it into a Python dictionary.
 

@@ -12,8 +12,6 @@ class Settings:
     calibrate_camera = False
     # Flag to indicate whether to estimate distances
     distance_estimation = True
-    # Current camera profile
-    current_camera_profile = None
 
 # Define a class to hold shared variables between threads
 class shared_variables:

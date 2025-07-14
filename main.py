@@ -10,79 +10,22 @@ from rapidvision.detection import ppyoloe_wrapper as detections
 from rapidvision.utils.general import absolute_path, extract_json_2_dict
 from rapidvision.detection import shared_data
 from rapidvision.camera import vision_io
+from rapidvision.ui.settings import SettingsMenu
 
 # Import required classes from PyQt5
 from threading import Thread
 from PyQt5.QtGui import QImage, QPainter
 from PyQt5.QtCore import QTimer, QPoint, Qt
-from PyQt5.QtWidgets import (
-    QApplication, QPushButton, QSpinBox, QWidget,
-      QDialog, QVBoxLayout, QLabel
-    )
+from PyQt5.QtWidgets import QApplication, QWidget
 
 # Define global variables
 allow_right = True
 allow_left = True
 last_direction = 2
+old_fps = shared_data.Settings.fps_controller
 
-# Consts
-SETTINGS_WINDOW_WIDTH = 300
-SETTINGS_WINDOW_HEIGHT = 200
-MAX_FPS = 120
-MIN_FPS = 1
+# Constants
 FONT_SIZE_DIVISOR = 50
-
-
-class SettingsMenu(QDialog):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Settings")
-        self.setGeometry(100, 100, SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
-
-        layout = QVBoxLayout()
-        self.setLayout(layout)
-
-        layout.addWidget(QLabel('Settings Menu'))
-
-        self.create_toggle_buttons(layout, "Show Detect Nums", "show_amount_of_detections")
-        self.create_toggle_buttons(layout, 'Show Detect Nums per Class', 'show_amount_of_detections_per_class')
-
-        self.cam_calibration_button = QPushButton('Calibrate Camera')
-        self.cam_calibration_button.clicked.connect(self.calibrate_camera)
-        layout.addWidget(self.cam_calibration_button)
-
-        self.fps_controller_label = QLabel(f'FPS: {shared_data.Settings.fps_controller}')
-        layout.addWidget(self.fps_controller_label)
-
-        self.fps_controller_spinbox = QSpinBox()
-        self.fps_controller_spinbox.setMinimum(MIN_FPS)
-        self.fps_controller_spinbox.setMaximum(MAX_FPS)
-        self.fps_controller_spinbox.setValue(shared_data.Settings.fps_controller)
-        self.fps_controller_spinbox.valueChanged.connect(self.update_fps)
-        layout.addWidget(self.fps_controller_spinbox)
-
-        self.close_button = QPushButton('Close Settings')
-        self.close_button.clicked.connect(self.close)
-        layout.addWidget(self.close_button)
-
-    def create_toggle_buttons(self, layout, text, setting_name):
-        button = QPushButton(f"{text}: {'ON' if getattr(shared_data.Settings, setting_name) else 'OFF'}")
-        button.setCheckable(True)
-        button.clicked.connect(lambda: self.toggle_setting(button, text, setting_name))
-        layout.addWidget(button)
-
-    def toggle_setting(self, button, text, setting_name):
-        setattr(shared_data.Settings, setting_name, not getattr(shared_data.Settings, setting_name))
-        button.setText(f"{text}: {'ON' if getattr(shared_data.Settings, setting_name) else 'OFF'}")
-
-    def calibrate_camera(self):
-        shared_data.Settings.calibrate_camera = not shared_data.Settings.calibrate_camera
-        self.close()
-
-    def update_fps(self, new_fps):
-        self.fps_controller_label.setText(f'FPS: {new_fps}')
-        VideoWidget.update_fps(widget, new_fps)
-
 
 
 class VideoWidget(QWidget):
@@ -91,7 +34,7 @@ class VideoWidget(QWidget):
         QWidget.__init__(self)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
-        self.update_fps(shared_data.Settings.fps_controller)
+        self.update_fps()
 
         self.image = None
         self.num_of_detections: int = 0
@@ -171,16 +114,25 @@ class VideoWidget(QWidget):
             allow_right = False
 
     def update_frame(self):
+        """Update the frame displayed in the widget and fps if changed."""
+        global old_fps
+
         new_img = shared_data.shared_variables.get_latest_frame()
         if new_img is not None:
             self.image = self.convert_cv2qimage(new_img)
         else:
             self.image = new_img
+        
+        if shared_data.Settings.fps_controller != old_fps:
+            self.update_fps()
+            old_fps = shared_data.Settings.fps_controller
+        
         self.update()
 
-    def update_fps(self, frames):
-        if frames > 0:
-            self.new_interval = float((1 / frames) * 1000)
+    def update_fps(self):
+        fps = shared_data.Settings.fps_controller
+        if fps > 0:
+            self.new_interval = float((1 / fps) * 1000)
             self.timer.stop()
             self.timer.start(int(self.new_interval))
 

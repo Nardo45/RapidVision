@@ -1,4 +1,4 @@
-import cv2, json
+import cv2
 
 from rapidvision.detection.shared_data import shared_variables as sv
 from rapidvision.utils.general import absolute_path, extract_json_2_dict
@@ -62,7 +62,7 @@ def camera_capture():
 def reset_camera():
     """Reset the camera to the current profile settings."""
     print("Resetting camera to current profile settings...")
-    if sv.get_cam_idx() <= 0: sv.set_cam_idx(0)
+    if sv.get_cam_idx() < 0: sv.set_cam_idx(0)
     cap = cv2.VideoCapture(sv.get_cam_idx())
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
     profile = sv.get_current_cam_profile()
@@ -91,29 +91,3 @@ def reset_camera():
         sv.set_latest_frame(frame)
 
     return cap
-
-def save_current_camera_profile(profile):
-    """Save the current camera profile to the JSON file."""
-    json_path = absolute_path('RapidVision', 'camera_profiles.json', 'config')
-    profiles = extract_json_2_dict(json_path)
-    
-    if "custom_camera_profiles" not in profiles:
-        profiles["custom_camera_profiles"] = []
-
-    profiles["custom_camera_profiles"].append(profile)
-    with open(json_path, 'w') as f:
-        json.dump(profiles, f, indent=4)
-
-
-
-def delete_camera_profile(profile):
-    """Delete a camera profile by name."""
-    json_path = absolute_path('RapidVision', 'camera_profiles.json', 'config')
-    profiles = extract_json_2_dict(json_path)
-    
-    if "custom_camera_profiles" in profiles:
-        profiles["custom_camera_profiles"] = [
-            p for p in profiles["custom_camera_profiles"] if p['name'] != profile
-        ]
-        with open(json_path, 'w') as f:
-            json.dump(profiles, f, indent=4)

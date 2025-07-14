@@ -1,14 +1,64 @@
 {
-  "common_camera_profiles": [
-    { "width": 1920, "height": 1080, "fps": 30 },
-    { "width": 1920, "height": 1080, "fps": 60 },
-    { "width": 1280, "height": 720,  "fps": 30 },
-    { "width": 1280, "height": 720,  "fps": 60 },
-    { "width": 1024, "height": 768,  "fps": 30 },
-    { "width": 800,  "height": 600,  "fps": 30 },
-    { "width": 640,  "height": 480,  "fps": 30 },
-    { "width": 640,  "height": 480,  "fps": 60 },
-    { "width": 3840, "height": 2160, "fps": 30 },
-    { "width": 3840, "height": 2160, "fps": 60 }
-  ]
+    "default_camera_profile": [
+        {
+            "name": "1080p Full HD @ 30fps",
+            "width": 1920,
+            "height": 1080,
+            "fps": 30
+        },
+        {
+            "name": "1080p Full HD @ 60fps",
+            "width": 1920,
+            "height": 1080,
+            "fps": 60
+        },
+        {
+            "name": "720p HD @ 30fps",
+            "width": 1280,
+            "height": 720,
+            "fps": 30
+        },
+        {
+            "name": "720p HD @ 60fps",
+            "width": 1280,
+            "height": 720,
+            "fps": 60
+        },
+        {
+            "name": "XGA 1024\u00d7768 @ 30fps",
+            "width": 1024,
+            "height": 768,
+            "fps": 30
+        },
+        {
+            "name": "SVGA 800\u00d7600 @ 30fps",
+            "width": 800,
+            "height": 600,
+            "fps": 30
+        },
+        {
+            "name": "VGA 640\u00d7480 @ 30fps",
+            "width": 640,
+            "height": 480,
+            "fps": 30
+        },
+        {
+            "name": "VGA 640\u00d7480 @ 60fps",
+            "width": 640,
+            "height": 480,
+            "fps": 60
+        },
+        {
+            "name": "4K UHD @ 30fps",
+            "width": 3840,
+            "height": 2160,
+            "fps": 30
+        },
+        {
+            "name": "4K UHD @ 60fps",
+            "width": 3840,
+            "height": 2160,
+            "fps": 60
+        }
+    ]
 }
