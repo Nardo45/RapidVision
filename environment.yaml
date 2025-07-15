@@ -1,0 +1,20 @@
+name: rapidvision_env
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pycocotools
+  - pyqt5
+  - pip:
+      - opencv-python==4.11.0.86
+      - torch==2.7.0+cpu
+      - torchvision==0.22.0+cpu
+      - torchaudio==2.7.0+cpu
+      - filelock==3.13.1
+      - msgpack==1.1.0
+      - pyqt5-qt5==5.15.16
+      - pyqt5-sip==12.17.0
+      - --extra-index-url https://download.pytorch.org/whl/cpu
