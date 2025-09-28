@@ -60,5 +60,6 @@
             "height": 2160,
             "fps": 60
         }
-    ]
+    ],
+    "custom_camera_profiles": []
 }

@@ -47,3 +47,16 @@ Follow these steps to set up the RapidVision environment and dependencies.
 * **Open Settings**: Press the `K` key to open the settings menu.
 * **Camera Profiles**: In the settings menu, use "Camera Profiles" to select or create presets.
 * **Camera Calibration**: In the settings menu, use "Calibrate Camera" to create measurements by moving a checkerboard across the camera. These measurements can slightly improve distance estimation.
+
+---
+
+## License and Attribution
+
+RapidVision is licensed under the [LGPL-3.0 License](LICENSE.md).
+
+This project includes third-party code under separate licenses:
+
+- [PPYOLOE_pytorch](https://github.com/Nioolek/PPYOLOE_pytorch) (Apache 2.0)  
+- [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX) (Apache 2.0)  
+
+See [THIRD_PARTY_LICENSES.md](third_party/THIRD_PARTY_LICENSES.md) for full details.

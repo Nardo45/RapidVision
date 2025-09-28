@@ -6,13 +6,13 @@ from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QLabel, QSpinBox
 # Constants
 SETTINGS_WINDOW_WIDTH = 300
 SETTINGS_WINDOW_HEIGHT = 200
-MAX_FPS = 120
+MAX_FPS = 165
 MIN_FPS = 1
 
 
 class SettingsMenu(QDialog):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setGeometry(100, 100, SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
 
@@ -23,6 +23,7 @@ class SettingsMenu(QDialog):
 
         self.create_toggle_buttons(layout, "Show Detect Nums", "show_amount_of_detections")
         self.create_toggle_buttons(layout, 'Show Detect Nums per Class', 'show_amount_of_detections_per_class')
+        self.create_toggle_buttons(layout, "Show Inference Time", "measure_inf_time")
 
         self.cam_calibration_button = QPushButton('Calibrate Camera')
         self.cam_calibration_button.clicked.connect(self.calibrate_camera)
@@ -62,10 +63,18 @@ class SettingsMenu(QDialog):
 
     def open_camera_profiles(self):
         """Open the camera profile management dialog."""
-        self.close()
-        dialog = CameraProfileDialog()
+        # Disable the settings window so it can't be used while child dialog is open
+        self.setEnabled(False)
+
+        # Parent the camera dialog to this settings dialog so modality and focus are correct
+        dialog = CameraProfileDialog(parent=self)
+        # Run the dialog modally; this starts a nested event loop but parenting prevents focus issues
         dialog.exec_()
-        self.open()  # Reopen settings after closing the dialog
+
+        # Re-enable settings after child dialog closes and bring it forward
+        self.setEnabled(True)
+        self.raise_()
+        self.activateWindow()
 
     def update_fps(self, new_fps):
         self.fps_controller_label.setText(f'FPS: {new_fps}')

@@ -1,8 +1,7 @@
 # Import necessary libraries
-import sys, cv2, torch
-
-import third_party.ppyoloe
-sys.modules['ppyoloe'] = third_party.ppyoloe
+import sys
+import cv2
+import torch
 
 from rapidvision.detection import ppyoloe_wrapper as detections
 
@@ -14,9 +13,13 @@ from rapidvision.ui.settings import SettingsMenu
 
 # Import required classes from PyQt5
 from threading import Thread
-from PyQt5.QtGui import QImage, QPainter
-from PyQt5.QtCore import QTimer, QPoint, Qt
+from PyQt5.QtGui import QImage, QPainter, QColor
+from PyQt5.QtCore import QTimer, QPoint, Qt, QRect
 from PyQt5.QtWidgets import QApplication, QWidget
+
+# Fixes error when third party libs import ppyoloe
+import third_party.ppyoloe
+sys.modules['ppyoloe'] = third_party.ppyoloe
 
 # Define global variables
 allow_right = True
@@ -30,6 +33,7 @@ FONT_SIZE_DIVISOR = 50
 
 class VideoWidget(QWidget):
     """A class for displaying video from OpenCV and detection boxes"""
+
     def __init__(self):
         QWidget.__init__(self)
         self.timer = QTimer(self)
@@ -52,7 +56,7 @@ class VideoWidget(QWidget):
         rgb_image = cv2.cvtColor(new_frame, cv2.COLOR_BGR2RGB)
         height, width, ch = rgb_image.shape
         return QImage(rgb_image.data, width, height, ch * width, QImage.Format_RGB888)
-    
+
     def paintEvent(self, event):
         global last_direction, allow_left, allow_right
         painter = QPainter(self)
@@ -65,9 +69,11 @@ class VideoWidget(QWidget):
         if self.image is not None:
             self.draw_image(painter)
             self.draw_detections(painter)
-            if allow_left != True:
+            if shared_data.Settings.measure_inf_time:
+                self.draw_inf_time(painter)
+            if allow_left is not True:
                 allow_left = True
-            if allow_right != True:
+            if allow_right is not True:
                 allow_right = True
         else:
             self.draw_no_feed(painter)
@@ -93,11 +99,71 @@ class VideoWidget(QWidget):
             for text in self.num_of_detections_per_class:
                 y_offset = self.draw_text(painter, text, x_offset, y_offset)
 
+    def draw_inf_time(self, painter: QPainter):
+        """
+        Draw the rolling average inference time in the top-right corner using draw_text.
+        Expects shared_data.shared_variables.get_avg_inference_time() to return seconds (float) or None.
+        """
+        inf = shared_data.shared_variables.get_avg_inference_time()
+        if inf is None:
+            return
+
+        # Format text
+        ms = inf * 1000.0
+        fps_text = ""
+        try:
+            if inf > 0:
+                fps_text = f" ({1.0/inf:.1f} FPS)"
+        except Exception:
+            pass
+
+        text = f"Inference: {ms:.1f} ms{fps_text}"
+
+        # Metrics and box size (use painter font metrics)
+        fm = painter.fontMetrics()
+        padding_x = 8
+        text_w = fm.boundingRect(text).width()
+
+        box_w = text_w + padding_x * 2
+
+        # compute left edge of the scaled image area then subtract box width + margin
+        scaled_image = self.image.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        x = (self.width() + scaled_image.width()) // 2 - box_w - 5
+        y = 10  # 10px margin from top
+
+        # Use draw_text to render rectangle+text
+        # draw_text returns the next y position; we ignore it here.
+        self.draw_text(painter, text, x, y)
+
     def draw_text(self, painter: QPainter, text, x_offset, y_offset):
-        text_rect = painter.fontMetrics().boundingRect(text)
-        painter.drawText(QPoint(x_offset, y_offset + text_rect.height()), text)
-        return y_offset + text_rect.height()
-    
+        """
+        Draw a single line of text with a semi-transparent black background box.
+        Returns the new y_offset (start position for the next line).
+        """
+        fm = painter.fontMetrics()
+        padding_x = 8
+        padding_y = 6
+
+        text_w = fm.boundingRect(text).width()
+        text_h = fm.height()
+
+        box_w = text_w + padding_x * 2
+        box_h = text_h + padding_y * 2
+
+        painter.save()
+        # background
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 160))  # semi-transparent black
+        painter.drawRect(QRect(x_offset, y_offset, box_w, box_h))
+
+        # text
+        painter.setPen(Qt.white)
+        text_x = x_offset + padding_x
+        painter.drawText(QPoint(text_x, y_offset + padding_y + fm.ascent()), text)
+        painter.restore()
+
+        return y_offset + box_h
+
     def draw_no_feed(self, painter: QPainter):
         global last_direction, allow_left, allow_right
         painter.fillRect(self.rect(), Qt.black)
@@ -122,11 +188,11 @@ class VideoWidget(QWidget):
             self.image = self.convert_cv2qimage(new_img)
         else:
             self.image = new_img
-        
+
         if shared_data.Settings.fps_controller != old_fps:
             self.update_fps()
             old_fps = shared_data.Settings.fps_controller
-        
+
         self.update()
 
     def update_fps(self):
@@ -137,8 +203,20 @@ class VideoWidget(QWidget):
             self.timer.start(int(self.new_interval))
 
     def display_settings(self):
-        self.settings_menu = SettingsMenu()
-        self.settings_menu.exec_()
+        # If already open, raise it
+        if hasattr(self, 'settings_menu') and getattr(self, 'settings_menu') is not None:
+            if self.settings_menu.isVisible():
+                self.settings_menu.raise_()
+                self.settings_menu.activateWindow()
+                return
+
+        # Create settings dialog with parent so stacking/focus is correct
+        self.settings_menu = SettingsMenu(parent=self)
+        # Show modelessly (no nested modal loop)
+        self.settings_menu.setWindowModality(Qt.WindowModal)
+        self.settings_menu.show()
+        self.settings_menu.raise_()
+        self.settings_menu.activateWindow()
 
     def keyPressEvent(self, event):
         global allow_left, allow_right, last_direction
@@ -159,12 +237,23 @@ class VideoWidget(QWidget):
             shared_data.shared_variables.set_reset_camera(True)
 
         else:
-            super().keyPressEvent(event)  # Call the base class method for other key presses
+            # Call the base class method for other key presses
+            super().keyPressEvent(event)
 
 
 # Main entry point of the application
 if __name__ == "__main__":
     print('Starting RapidVision...')
+
+    if hasattr(torch.backends, "nnpack"):
+        try:
+            # Try creating a dummy tensor to check if NNPACK works
+            x = torch.randn(1, 3, 64, 64)
+            torch.backends.nnpack.convolution(x, x, padding=1)
+        except Exception:
+            # Disable only if unsupported
+            torch.backends.nnpack.set_flags(False)
+
     # Load average camera focal length data from JSON file
     shared_data.shared_variables.set_cam_focal_len(extract_json_2_dict(absolute_path('RapidVision', 'cam_cali_data.json', 'data')))
 
@@ -186,7 +275,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     widget = VideoWidget()
     widget.setWindowTitle('RapidVision')
-    #widget.setWindowIcon(QIcon(absolute_path('RapidVision', 'RapidVision_Icon.png', 'Icon'))) TODO: Create an icon and use this line to display it
+    # widget.setWindowIcon(QIcon(absolute_path('RapidVision', 'RapidVision_Icon.png', 'Icon'))) TODO: Create an icon and use this line to display it
     widget.show()
 
     # Ensure the detection thread is stopped when the main window is closed

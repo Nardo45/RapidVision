@@ -1,23 +1,41 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QSpinBox, QLineEdit, QMessageBox
-)
+    )
+from PyQt5.QtCore import Qt, QTimer
 
 # Custom imports
-from rapidvision.utils.general import absolute_path, extract_json_2_dict, save_2_json
+from rapidvision.utils.general import (
+    absolute_path, extract_json_2_dict, save_2_json
+    )
 from rapidvision.detection import shared_data
 
 # Constants
 CAMERA_PROFILES_FILE: str = absolute_path('RapidVision', 'camera_profiles.json', 'config')
-DEFUALT_PROFILES: dict = extract_json_2_dict(CAMERA_PROFILES_FILE).get("default_camera_profile")
+
+# Normalize whatever is in the JSON into a list of profiles
+_raw_defaults = extract_json_2_dict(CAMERA_PROFILES_FILE) or {}
+_DEF = _raw_defaults.get("default_camera_profile", [])
+if isinstance(_DEF, dict):
+    # If it's a single profile dict
+    if 'name' in _DEF:
+        DEFUALT_PROFILES = [_DEF]
+    else:
+        # if mapping name->profile, convert to list of values
+        DEFUALT_PROFILES = list(_DEF.values())
+elif _DEF is None:
+    DEFUALT_PROFILES = []
+else:
+    DEFUALT_PROFILES = list(_DEF)
+
 
 class CameraProfileDialog(QDialog):
-    def __init__(self):
-        super().__init__()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.setWindowTitle("Camera Profile Manager")
         self.setGeometry(150, 150, 500, 300)
 
-        self.load_profiles()
         self.current_selected_profile = None
 
         main_layout = QVBoxLayout()
@@ -69,84 +87,142 @@ class CameraProfileDialog(QDialog):
 
         main_layout.addLayout(form_layout)
 
+        # Load and display
+        self.load_profiles()
         self.refresh_profile_list()
 
     def load_profiles(self):
-        """Load custom camera profiles from the JSON file."""
-        self.custom_profiles = extract_json_2_dict(CAMERA_PROFILES_FILE).get("custom_camera_profiles", [])
+        """
+        Load custom camera profiles from the JSON file and ensureit's a list.
+        """
+        data = extract_json_2_dict(CAMERA_PROFILES_FILE) or {}
+        custom = data.get("custom_camera_profiles", [])
+        if custom is None:
+            custom = []
+        # ensure list
+        if isinstance(custom, dict):
+            # if it's a single dict profile, wrap it
+            if 'name' in custom:
+                self.custom_profiles = [custom]
+            else:
+                self.custom_profiles = list(custom.values())
+        else:
+            self.custom_profiles = list(custom)
 
     def save_profiles(self):
         """Save the current custom profiles to the JSON file."""
-        save_2_json(CAMERA_PROFILES_FILE, {"custom_camera_profiles": self.custom_profiles})
+        # ensure serializable list
+        try:
+            save_2_json(CAMERA_PROFILES_FILE, {"custom_camera_profiles": self.custom_profiles})
+        except Exception as e:
+            self._show_message("Save Error", f"Failed to save profiles: {e}", kind='warning')
 
     def refresh_profile_list(self):
         """Refresh the profile list widget with current profiles."""
         self.profile_list.clear()
-        for profile in DEFUALT_PROFILES:
-            item = QListWidgetItem(f"[Default] {profile.get('name', 'Default')}")
+        # defaults
+        for profile in DEFUALT_PROFILES or []:
+            name = profile.get('name') if isinstance(profile, dict) else str(profile)
+            item = QListWidgetItem(f"[Default] {name}")
             item.setData(1000, profile)  # Custom data for the profile
             self.profile_list.addItem(item)
-        for profile in self.custom_profiles:
-            item = QListWidgetItem(profile.get('name', 'Custom Profile'))
+        # customs
+        for profile in self.custom_profiles or []:
+            name = profile.get('name') if isinstance(profile, dict) else str(profile)
+            item = QListWidgetItem(name)
             item.setData(1000, profile)
             self.profile_list.addItem(item)
 
     def on_profile_selected(self, item: QListWidgetItem):
         """Handle profile selection from the list."""
         profile = item.data(1000)
+        if not isinstance(profile, dict):
+            # defensive: ignore non-dict entries
+            self._show_message("Invalid profile", "Selected profile has invalid data.", kind='warning')
+            self.current_selected_profile = None
+            return
         self.current_selected_profile = profile
         self.name_input.setText(profile.get('name', ''))
-        self.width_input.setValue(profile.get('width', 640))
-        self.height_input.setValue(profile.get('height', 480))
-        self.fps_input.setValue(profile.get('fps', 30))
+        self.width_input.setValue(int(profile.get('width', 640) or 640))
+        self.height_input.setValue(int(profile.get('height', 480) or 480))
+        self.fps_input.setValue(int(profile.get('fps', 30) or 30))
 
     def apply_profile(self):
         """Apply the selected profile to the camera."""
         if not self.current_selected_profile:
-            QMessageBox.warning(self, "No Profile", "Select a profile to apply.")
+            self._show_message("No Profile", "Select a profile to apply.", kind='warning')
             return
-        
-        # Update shared data settings
-        shared_data.shared_variables.set_current_cam_profile(self.current_selected_profile)
 
-        # Reset camera with the new profile
-        shared_data.shared_variables.set_reset_camera(True)
-        QMessageBox.information(self, "Profile Applied", f"Applied profile: {self.current_selected_profile}")
+        # Update shared data settings (ensure methods exist)
+        try:
+            shared_data.shared_variables.set_current_cam_profile(self.current_selected_profile)
+            shared_data.shared_variables.set_reset_camera(True)
+        except Exception as e:
+            self._show_message("Apply Error", f"Failed to apply profile: {e}", kind='warning')
+            return
+
+        # Inform the user non-modally, so we avoid deadlocks with other threads
+        self._show_message("Profile Applied", f"Applied profile: {self.current_selected_profile.get('name', '')}", kind='info')
         self.close()
 
     def save_custom_profile(self):
         """Save a new custom camera profile."""
         name = self.name_input.text().strip()
         if not name:
-            QMessageBox.warning(self, "Invalid Name", "Profile name cannot be empty.")
+            self._show_message("Invalid Name", "Profile name cannot be empty.", kind='warning')
             return
-        for profile in DEFUALT_PROFILES + self.custom_profiles:
+        # check duplicates
+        combined = []
+        combined.extend([p for p in (DEFUALT_PROFILES or []) if isinstance(p, dict)])
+        combined.extend([p for p in (self.custom_profiles or []) if isinstance(p, dict)])
+        for profile in combined:
             if profile.get('name') == name:
-                QMessageBox.warning(self, "Profile Exists", "A profile with this name already exists.")
+                self._show_message("Profile Exists", "A profile with this name already exists.", kind='warning')
                 return
-        
+
         new_profile = {
             'name': name,
-            'width': self.width_input.value(),
-            'height': self.height_input.value(),
-            'fps': self.fps_input.value()
+            'width': int(self.width_input.value()),
+            'height': int(self.height_input.value()),
+            'fps': int(self.fps_input.value())
         }
         self.custom_profiles.append(new_profile)
         self.save_profiles()
         self.refresh_profile_list()
-        QMessageBox.information(self, "Profile Saved", f"Profile: {name}")
+        self._show_message("Profile Saved", f"Profile: {name}", kind='info')
 
     def delete_custom_profile(self):
         """Delete the currently selected custom profile."""
         if not self.current_selected_profile:
-            QMessageBox.warning(self, "No Profile", "Select a profile to delete.")
+            self._show_message("No Profile", "Select a profile to delete.", kind='warning')
             return
         profile = self.current_selected_profile
-        if profile in DEFUALT_PROFILES:
-            QMessageBox.warning(self, "Cannot Delete", "Cannot delete default profiles.")
+        if isinstance(profile, dict) and profile in DEFUALT_PROFILES:
+            self._show_message("Cannot Delete", "Cannot delete default profiles.", kind='warning')
             return
-        self.custom_profiles = [p for p in self.custom_profiles if p != profile]
+        # only remove from custom list
+        self.custom_profiles = [p for p in (self.custom_profiles or []) if p != profile]
         self.save_profiles()
         self.refresh_profile_list()
-        QMessageBox.information(self, "Profile Deleted", f"Deleted profile: {profile.get('name', 'Unknown')}")
+        self._show_message("Profile Deleted", f"Deleted profile: {profile.get('name', 'Unknown')}", kind='info')
         self.current_selected_profile = None
+
+    def _show_message(self, title: str, text: str, kind: str = 'info', timeout_ms: int = 3000):
+        """
+        Non-blocking helper to show a short message to the user.
+        kind: 'info' or 'warning'
+        timeout_ms: auto close in milliseconds
+        """
+        msg = QMessageBox(self)
+        msg.setWindowTitle(title)
+        msg.setText(text)
+        if kind == 'warning':
+            msg.setIcon(QMessageBox.Warning)
+        else:
+            msg.setIcon(QMessageBox.Information)
+        msg.setStandardButtons(QMessageBox.Ok)
+        # make it non-modal to avoid blocking the main event loop if other threads are interacting with shared state
+        msg.setWindowModality(Qt.NonModal)
+        msg.show()
+        # auto-close after timeout_ms to ensure no lingering modal
+        QTimer.singleShot(timeout_ms, msg.accept)
