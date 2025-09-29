@@ -4,7 +4,7 @@
 
 RapidVision is currently focused on fast and accurate detection of common object categories (e.g., people, vehicles, animals, household items) with a lightweight and modular Python architecture.
 
-> **Planned features** include hardware-accelerated inference (e.g., NVIDIA Jetson, Intel NPU) and support for security surveillance tasks such as frame recording, event logging, and smart detection triggers.
+> **Planned features** include hardware-accelerated inference and support for security surveillance tasks such as frame recording, event logging, and smart detection triggers.
 
 ---
 
@@ -22,7 +22,7 @@ Follow these steps to set up the RapidVision environment and dependencies.
 2. **Create and activate the Conda environment**
 
    ```bash
-   conda env create -f environment.yaml
+   conda env create -f envs/CPU.yaml
    conda activate rapidvision_env
    ```
 

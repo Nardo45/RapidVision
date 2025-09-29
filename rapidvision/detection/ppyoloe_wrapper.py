@@ -309,7 +309,6 @@ def letterbox_image(image, target_size=(640, 640), color=(114, 114, 114)):
 def read_objects(model, device):
     """Read objects from the live feed and update latest detections."""
     _inference_times = deque(maxlen=100)
-    start = 0
     coco_file = absolute_path("RapidVision", "coco_classes.msgpack", "config")
     with open(coco_file, "rb") as file:
         coco_classes = msgpack.unpack(file, strict_map_key=False)
@@ -321,7 +320,10 @@ def read_objects(model, device):
 
         # If a new frame is available, perform object detection and update the latest detections
         elif sv.get_latest_frame() is not None:
-            if Settings.measure_inf_time:
+            # Snapshot measurement decision and start time together
+            measure_now = Settings.measure_inf_time
+            start = None
+            if measure_now:
                 # Measure model inference time
                 start = time.perf_counter()
 
@@ -340,7 +342,7 @@ def read_objects(model, device):
 
             detections = decode_ppyoloe_output(outputs, coco_classes, scale, (pad_left, pad_top))
 
-            if Settings.measure_inf_time:
+            if measure_now and start is not None:
                 end = time.perf_counter()
 
                 inf_time = end - start  # seconds
